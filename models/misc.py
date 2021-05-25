@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import models
 from models import register
 from utils import make_coord
-
+import pdb
 
 @register('metasr')
 class MetaSR(nn.Module):
@@ -23,6 +23,7 @@ class MetaSR(nn.Module):
             }
         }
         self.imnet = models.make(imnet_spec)
+        pdb.set_trace()
 
     def gen_feat(self, inp):
         self.feat = self.encoder(inp)

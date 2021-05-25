@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models import register
+import pdb
 
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
@@ -92,6 +93,8 @@ url = {
 class EDSR(nn.Module):
     def __init__(self, args, conv=default_conv):
         super(EDSR, self).__init__()
+        # args -- Namespace(n_colors=3, n_feats=64, n_resblocks=16, no_upsampling=True,
+        #  res_scale=1, rgb_range=1, scale=[2])
         self.args = args
         n_resblocks = args.n_resblocks
         n_feats = args.n_feats
@@ -99,6 +102,7 @@ class EDSR(nn.Module):
         scale = args.scale[0]
         act = nn.ReLU(True)
         url_name = 'r{}f{}x{}'.format(n_resblocks, n_feats, scale)
+        # url_name -- 'r16f64x2'
         if url_name in url:
             self.url = url[url_name]
         else:
@@ -120,6 +124,7 @@ class EDSR(nn.Module):
         self.head = nn.Sequential(*m_head)
         self.body = nn.Sequential(*m_body)
 
+        # args.no_upsampling -- True
         if args.no_upsampling:
             self.out_dim = n_feats
         else:
@@ -146,6 +151,8 @@ class EDSR(nn.Module):
         return x
 
     def load_state_dict(self, state_dict, strict=True):
+        pdb.set_trace()
+
         own_state = self.state_dict()
         for name, param in state_dict.items():
             if name in own_state:
@@ -178,6 +185,8 @@ def make_edsr_baseline(n_resblocks=16, n_feats=64, res_scale=1,
 
     args.rgb_range = rgb_range
     args.n_colors = 3
+    # pp args -- Namespace(n_colors=3, n_feats=64, n_resblocks=16, 
+    # no_upsampling=True, res_scale=1, rgb_range=1, scale=[2])
     return EDSR(args)
 
 
@@ -194,4 +203,6 @@ def make_edsr(n_resblocks=32, n_feats=256, res_scale=0.1,
 
     args.rgb_range = rgb_range
     args.n_colors = 3
+    pdb.set_trace()
+
     return EDSR(args)

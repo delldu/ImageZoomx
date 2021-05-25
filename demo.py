@@ -9,6 +9,7 @@ import models
 from utils import make_coord
 from test import batched_predict
 
+import pdb
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -22,6 +23,14 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     img = transforms.ToTensor()(Image.open(args.input).convert('RGB'))
+
+    # pdb.set_trace()
+    # x = torch.load(args.model)
+    # (Pdb) x.keys() -- dict_keys(['model', 'optimizer', 'epoch'])
+    # x['model']['sd'].keys()
+    # odict_keys(['encoder.sub_mean.weight', 'encoder.sub_mean.bias', 
+    #     'encoder.add_mean.weight', 'encoder.add_mean.bias', 'encoder.head.0.weight', 
+    #     ...
 
     model = models.make(torch.load(args.model)['model'], load_sd=True).cuda()
 

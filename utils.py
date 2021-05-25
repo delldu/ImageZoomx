@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from torch.optim import SGD, Adam
 from tensorboardX import SummaryWriter
-
+import pdb
 
 class Averager():
 
@@ -112,8 +112,29 @@ def make_coord(shape, ranges=None, flatten=True):
         seq = v0 + r + (2 * r) * torch.arange(n).float()
         coord_seqs.append(seq)
     ret = torch.stack(torch.meshgrid(*coord_seqs), dim=-1)
+    # (Pdb) torch.stack(torch.meshgrid(*coord_seqs), dim=-1).size()
+    # torch.Size([512, 960, 2])
+    
     if flatten:
         ret = ret.view(-1, ret.shape[-1])
+
+    # pdb.set_trace()
+    # shape = (512, 960)
+    # ranges = None
+    # flatten = True
+
+    # (Pdb) pp len(coord_seqs), coord_seqs[0].size(), coord_seqs[1].size()
+    # (2, torch.Size([512]), torch.Size([960]))
+
+    # coord_seqs[0]
+    # tensor([-0.9980, -0.9941, -0.9902, -0.9863, -0.9824, -0.9785, -0.9746, -0.9707,
+    # ...
+    #          0.9707,  0.9746,  0.9785,  0.9824,  0.9863,  0.9902,  0.9941,  0.9980])
+
+
+    # (Pdb) ret.size()
+    # torch.Size([491520, 2]) -- 512 *960
+
     return ret
 
 
@@ -123,6 +144,8 @@ def to_pixel_samples(img):
     """
     coord = make_coord(img.shape[-2:])
     rgb = img.view(3, -1).permute(1, 0)
+    pdb.set_trace()
+    
     return coord, rgb
 
 

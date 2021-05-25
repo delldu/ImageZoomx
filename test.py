@@ -12,11 +12,14 @@ import datasets
 import models
 import utils
 
+import pdb
 
 def batched_predict(model, inp, coord, cell, bsize):
+    # (Pdb) pp bsize -- 30000
     with torch.no_grad():
         model.gen_feat(inp)
         n = coord.shape[1]
+        # (Pdb) coord.shape -- torch.Size([1, 491520, 2])
         ql = 0
         preds = []
         while ql < n:
@@ -25,6 +28,8 @@ def batched_predict(model, inp, coord, cell, bsize):
             preds.append(pred)
             ql = qr
         pred = torch.cat(preds, dim=1)
+
+    # (Pdb) pred.size() -- torch.Size([1, 491520, 3])
     return pred
 
 
