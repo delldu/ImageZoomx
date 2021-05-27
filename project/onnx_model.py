@@ -76,7 +76,7 @@ if __name__ == '__main__':
     # ************************************************************************************/
     #
 
-    dummy_input = torch.randn(1, 3, 512, 512)
+    dummy_input = torch.randn(1, 3, 256, 256)
     onnx_file_name = "{}/image_zoomx.onnx".format(args.output)
     checkpoints = "models/ImageZoomx.pth"
 
@@ -110,7 +110,7 @@ if __name__ == '__main__':
         # https://github.com/onnx/optimizer
 
         # 4. Visual model
-        # python -c "import netron; netron.start('output/model.onnx')"
+        # python -c "import netron; netron.start('output/image_zoomx.onnx')"
 
     def verify_onnx():
         """Verify onnx model."""
