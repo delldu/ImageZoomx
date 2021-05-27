@@ -11,6 +11,7 @@ from tqdm import tqdm
 import datasets
 import models
 import utils
+import torch.nn.functional as F
 
 import pdb
 
@@ -27,6 +28,9 @@ def batched_predict(model, inp, coord, cell, bsize):
             pred = model.query_rgb(coord[:, ql: qr, :], cell[:, ql: qr, :])
             preds.append(pred)
             ql = qr
+        # pdb.set_trace()
+        # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
+        # (105, torch.Size([1, 30000, 3]), torch.Size([1, 30000, 3]), torch.Size([1, 25728, 3]))
         pred = torch.cat(preds, dim=1)
 
     # (Pdb) pred.size() -- torch.Size([1, 491520, 3])

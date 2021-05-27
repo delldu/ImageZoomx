@@ -102,7 +102,15 @@ def make_optimizer(param_list, optimizer_spec, load_sd=False):
 def make_coord(shape, ranges=None, flatten=True):
     """ Make coordinates at grid centers.
     """
+    # pdb.set_trace()
+    # shape = (384, 512)
+    # ranges = None
+    # flatten = True
+
     coord_seqs = []
+    # for i, n in enumerate(shape): print(i, n)
+    # 0 384
+    # 1 512
     for i, n in enumerate(shape):
         if ranges is None:
             v0, v1 = -1, 1
@@ -111,6 +119,15 @@ def make_coord(shape, ranges=None, flatten=True):
         r = (v1 - v0) / (2 * n)
         seq = v0 + r + (2 * r) * torch.arange(n).float()
         coord_seqs.append(seq)
+
+        # (Pdb) torch.arange(10) -- tensor([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+        # pdb.set_trace()
+        # i, n -- (0, 384), r -- 0.0026041666666666665, pp seq.size() -- torch.Size([384])
+        # pp i, n -- (1, 512), r -- ...
+
+    # (Pdb) len(coord_seqs), coord_seqs[0].size(), coord_seqs[1].size()
+    # (2, torch.Size([384]), torch.Size([512]))
+
     ret = torch.stack(torch.meshgrid(*coord_seqs), dim=-1)
     # (Pdb) torch.stack(torch.meshgrid(*coord_seqs), dim=-1).size()
     # torch.Size([512, 960, 2])

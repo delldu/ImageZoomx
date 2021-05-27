@@ -33,8 +33,6 @@ class MLP(nn.Module):
         # out_dim = 3
         # hidden_list = [256, 256, 256, 256]
 
-
-
     def forward(self, x):
         shape = x.shape[:-1]
         x = self.layers(x.view(-1, x.shape[-1]))

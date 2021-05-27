@@ -71,6 +71,10 @@ class LIIF(nn.Module):
     def query_rgb(self, coord, cell=None):
         feat = self.feat
 
+        # pdb.set_trace()
+        # (Pdb) feat.size(), coord.size(), cell.size()
+        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
+
         if self.imnet is None:
             ret = F.grid_sample(feat, coord.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
@@ -79,6 +83,7 @@ class LIIF(nn.Module):
 
         # self.feat_unfold -- True
         if self.feat_unfold:
+            # feat.shape:  torch.Size([1, 64, 96, 128])
             feat = F.unfold(feat, 3, padding=1).view(
                 feat.shape[0], feat.shape[1] * 9, feat.shape[2], feat.shape[3])
 
@@ -93,7 +98,10 @@ class LIIF(nn.Module):
         # field radius (global: [-1, 1])
         rx = 2 / feat.shape[-2] / 2
         ry = 2 / feat.shape[-1] / 2
+        # (Pdb) pp rx, ry -- (0.010416666666666666, 0.0078125)
 
+        # (Pdb) feat.shape -- torch.Size([1, 576, 96, 128])
+        # (Pdb) feat.shape[-2:] -- torch.Size([96, 128])
         feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda() \
             .permute(2, 0, 1) \
             .unsqueeze(0).expand(feat.shape[0], 2, *feat.shape[-2:])
@@ -129,6 +137,10 @@ class LIIF(nn.Module):
                     inp = torch.cat([inp, rel_cell], dim=-1)
 
                 bs, q = coord.shape[:2]
+                # MLP Forward ...
+                # print("--- inp:", inp.size(), "bs:", bs, "q:", q)
+                # inp: torch.Size([1, 30000, 580]) bs: 1 q: 30000
+
                 pred = self.imnet(inp.view(bs * q, -1)).view(bs, q, -1)
                 preds.append(pred)
 
