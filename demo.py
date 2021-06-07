@@ -34,26 +34,24 @@ if __name__ == '__main__':
 
     model = models.make(torch.load(args.model)['model'], load_sd=True).cuda()
 
+    # h, w = list(map(int, args.resolution.split(',')))
+    h = img.shape[1]
+    w = img.shape[2]
 
-    h, w = list(map(int, args.resolution.split(',')))
-    h *= 4
-    w *= 4
-    
+    h *= 16
+    w *= 16
+
     coord = make_coord((h, w)).cuda()
+    # coord.size() -- [h * w, 2]
+
     cell = torch.ones_like(coord)
     cell[:, 0] *= 2 / h
     cell[:, 1] *= 2 / w
 
-    # pdb.set_trace()
-    # coord.size() -- [h * w, 2]
-
     # pred = batched_predict(model, ((img - 0.5) / 0.5).cuda().unsqueeze(0),
     #     coord.unsqueeze(0), cell.unsqueeze(0), bsize=30000)[0]
     # pred = (pred * 0.5 + 0.5).clamp(0, 1).view(h, w, 3).permute(2, 0, 1).cpu()
-
-
-    pred = batched_predict(model, img.cuda().unsqueeze(0),
-        coord.unsqueeze(0), cell.unsqueeze(0), bsize=30000)[0]
+    pred = batched_predict(model, img.cuda().unsqueeze(0), coord.unsqueeze(0), cell.unsqueeze(0), bsize=30000)[0]
     pred = pred.clamp(0, 1).view(h, w, 3).permute(2, 0, 1).cpu()
 
     transforms.ToPILImage()(pred).save(args.output)
