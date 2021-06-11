@@ -30,7 +30,7 @@ class LIIF(nn.Module):
             # self.feat_unfold -- True
             if self.feat_unfold:
                 imnet_in_dim *= 9
-            imnet_in_dim += 2 # attach coord
+            imnet_in_dim += 2 # attach grid
             if self.cell_decode:
                 imnet_in_dim += 2
             self.imnet = models.make(imnet_spec, args={'in_dim': imnet_in_dim})
@@ -59,61 +59,61 @@ class LIIF(nn.Module):
         # )
 
 
-    def gen_feat(self, inp):
-        self.feat = self.encoder(inp)
-        # (Pdb) inp.size()
+    def gen_feat(self, input):
+        self.feat = self.encoder(input)
+        # (Pdb) input.size()
         # torch.Size([1, 3, 384, 510])
         # images/0803.png: PNG image data, 510 x 384, 8-bit/color RGB, non-interlaced
         # (Pdb) self.feat.size() -- torch.Size([1, 64, 384, 510])
 
         return self.feat
 
-    def query_rgb(self, coord, cell=None):
-        feat = self.feat
 
-        # pdb.set_trace()
-        # (Pdb) feat.size(), coord.size(), cell.size()
-        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
-
-        # feat.shape:  torch.Size([1, 64, 96, 128])
-        feat = F.unfold(feat, 3, padding=1).view(feat.shape[0], feat.shape[1] * 9, feat.shape[2], feat.shape[3])
-
-        eps_shift = 1e-6
-
-        # field radius (global: [-1, 1])
-        delta_h = 2 / feat.shape[-2] / 2
-        delta_w = 2 / feat.shape[-1] / 2
-        # (Pdb) pp delta_h, delta_w -- (0.010416666666666666, 0.0078125)
-
-        # (Pdb) feat.shape -- torch.Size([1, 576, 96, 128])
-        # (Pdb) feat.shape[-2:] -- torch.Size([96, 128])
-        feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda() \
-            .permute(2, 0, 1) \
-            .unsqueeze(0).expand(feat.shape[0], 2, *feat.shape[-2:])
-        # feat_coord.size() -- torch.Size([1, 2, 96, 128])
-
-
-        # (Pdb) pp coord.size(), cell.size()
+    def query_rgb(self, grid, cell):
+        # (Pdb) pp grid.size(), cell.size()
         # (torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
 
+        feat = self.feat
+        B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
 
-        # for r in [-1, 1]: print(r)
-        # -1, 1
+        batch, chan = grid.shape[:2]
+        # grid.size() -- torch.Size([1, 30000, 2])
+
+        # (Pdb) feat.size(), grid.size(), cell.size()
+        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
+        feat = F.unfold(feat, 3, padding=1).view(B, C * 9, H, W)
+        # (Pdb) self.feat.size() -- torch.Size([1, 64, 96, 128])
+        # (Pdb) feat.size() -- torch.Size([1, 576, 96, 128])
+
+        feat_grid = make_coord((H, W), flatten=False).cuda() \
+            .permute(2, 0, 1) \
+            .unsqueeze(0).expand(B, 2, H, W)
+        # feat_grid.size() -- torch.Size([1, 2, 96, 128])
+
+        eps_shift = 1e-6
+        delta_h = 1 / H
+        delta_w = 1 / W
+        q_cell = cell.clone()
+        q_cell[:, :, 0] *= H
+        q_cell[:, :, 1] *= W
+        # (Pdb) q_cell.size() -- torch.Size([1, 30000, 2])
+        # (Pdb) q_cell.min(), q_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
 
         preds = []
         areas = []
         for r in [-1, 1]:
             for c in [-1, 1]:
-                coord_ = coord.clone()
-                # coord_[:, :, 0] += r * delta_h + eps_shift
-                # coord_[:, :, 1] += c * delta_w + eps_shift
-                # coord_.clamp_(-1 + 1e-6, 1 - 1e-6)
+                fine_grid = grid.clone()
+                # fine_grid[:, :, 0] += r * delta_h + eps_shift
+                # fine_grid[:, :, 1] += c * delta_w + eps_shift
+                # fine_grid.clamp_(-1 + 1e-6, 1 - 1e-6)
 
-                coord_[:, :, 0] += r * delta_h
-                coord_[:, :, 1] += c * delta_w
-                coord_.clamp_(-1 + eps_shift, 1 - eps_shift)
+                fine_grid[:, :, 0] += r * delta_h
+                fine_grid[:, :, 1] += c * delta_w
+                fine_grid.clamp_(-1 + eps_shift, 1 - eps_shift)
+                fine_grid = fine_grid.flip(-1).unsqueeze(1)
 
-                # (Pdb) coord_.size()
+                # (Pdb) fine_grid.size()
                 # torch.Size([1, 30000, 2])
 
                 # (Pdb) x = torch.randn(1, 3, 2)
@@ -125,40 +125,31 @@ class LIIF(nn.Module):
                 # tensor([[[ 0.5135, -0.8006],
                 #          [-0.0481, -0.1273],
                 #          [ 1.5947, -1.1217]]])
-                q_feat = F.grid_sample(
-                    feat, coord_.flip(-1).unsqueeze(1),
-                    mode='nearest', align_corners=False)[:, :, 0, :] \
-                    .permute(0, 2, 1)
+
+                # F.grid_sample(feat, fine_grid.flip(-1).unsqueeze(1),mode='nearest', align_corners=False).size() --
+                # torch.Size([1, 576, 1, 65536])
+                q_feat = F.grid_sample(feat, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+
                 # (Pdb) q_feat.size() -- torch.Size([1, 30000, 576])
 
-                q_coord = F.grid_sample(
-                    feat_coord, coord_.flip(-1).unsqueeze(1),
-                    mode='nearest', align_corners=False)[:, :, 0, :] \
-                    .permute(0, 2, 1)
-                # (Pdb) q_coord.size() -- torch.Size([1, 30000, 2])
+                q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                # (Pdb) q_grid.size() -- torch.Size([1, 30000, 2])
 
-                rel_coord = coord - q_coord
-                rel_coord[:, :, 0] *= feat.shape[-2]
-                rel_coord[:, :, 1] *= feat.shape[-1]
-                # (Pdb) rel_coord.size() -- torch.Size([1, 30000, 2])
-                # (Pdb) rel_coord.min(), rel_coord.max() -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
-                inp = torch.cat([q_feat, rel_coord], dim=-1)
-
-                rel_cell = cell.clone()
-                rel_cell[:, :, 0] *= feat.shape[-2]
-                rel_cell[:, :, 1] *= feat.shape[-1]
-                # (Pdb) rel_cell.size() -- torch.Size([1, 30000, 2])
-                # (Pdb) rel_cell.min(), rel_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
-                inp = torch.cat([inp, rel_cell], dim=-1)
-
-                batch, chan = coord.shape[:2]
-                # coord.size() -- torch.Size([1, 30000, 2])
+                q_grid = grid - q_grid
+                q_grid[:, :, 0] *= H
+                q_grid[:, :, 1] *= W
+                # (Pdb) q_grid.size() -- torch.Size([1, 30000, 2])
+                # (Pdb) q_grid.min(), q_grid.max() -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
 
                 # MLP Forward ...
-                pred = self.imnet(inp.view(batch * chan, -1)).view(batch, chan, -1)
+                input = torch.cat([q_feat, q_grid, q_cell], dim=-1).view(batch * chan, -1)
+                # input.size() -- torch.Size([30000, 580])
+
+                pred = self.imnet(input).view(batch, chan, -1)
+                # (Pdb) pred.size() -- torch.Size([1, 30000, 3])
                 preds.append(pred)
 
-                area = torch.abs(rel_coord[:, :, 0] * rel_coord[:, :, 1])
+                area = torch.abs(q_grid[:, :, 0] * q_grid[:, :, 1])
                 areas.append(area + 1e-9)
 
         total_area = torch.stack(areas).sum(dim=0)
@@ -169,10 +160,18 @@ class LIIF(nn.Module):
         ret = 0
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / total_area).unsqueeze(-1)
+        # # delete loop for onnx
+        # ret += preds[0] * (areas[0]/total_area).unsqueeze(-1)
+        # ret += preds[1] * (areas[1]/total_area).unsqueeze(-1)
+        # ret += preds[2] * (areas[2]/total_area).unsqueeze(-1)
+        # ret += preds[3] * (areas[3]/total_area).unsqueeze(-1)
+        # (Pdb) areas[0].size() -- torch.Size([1, 65536])
+        # preds[0].size() -- torch.Size([1, 65536, 3])
+
         return ret
 
-    def forward(self, inp, coord, cell):
+    def forward(self, input, grid, cell):
         pdb.set_trace()
 
-        self.gen_feat(inp)
-        return self.query_rgb(coord, cell)
+        self.gen_feat(input)
+        return self.query_rgb(grid, cell)

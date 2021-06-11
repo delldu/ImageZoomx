@@ -13,6 +13,7 @@ import argparse
 import os
 import pdb  # For debug
 import time
+import sys
 
 import numpy as np
 import onnx
@@ -28,7 +29,24 @@ from PIL import Image
 # ***
 # ************************************************************************************/
 #
-from model import get_model
+from model import get_model, model_device, model_setenv
+
+from torch.onnx.symbolic_helper import parse_args
+from torch.onnx.symbolic_registry import register_op
+
+@parse_args('v', 'v', 'i', 'i', 'i')
+def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
+    '''
+    torch.nn.functional.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=None)
+    Need convert interpolation_mode, padding_mode ? NO for simpler at now !!!
+    '''
+    return g.op('onnxservice::grid_sampler', input, grid,
+        interpolation_mode_i=interpolation_mode,
+        padding_mode_i=padding_mode,
+        align_corners_i=align_corners)
+
+register_op('grid_sampler', grid_sampler, '', 11)
+
 
 def onnx_load(onnx_file):
     session_options = onnxruntime.SessionOptions()
@@ -60,13 +78,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-e', '--export', help="export onnx model", action='store_true')
     parser.add_argument('-v', '--verify', help="verify onnx model", action='store_true')
-    parser.add_argument('-p', '--predict', help="predict with onnx model", action='store_true')
     parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
 
     args = parser.parse_args()
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
+
+    model_setenv()
 
     #
     # /************************************************************************************
@@ -77,6 +96,9 @@ if __name__ == '__main__':
     #
 
     dummy_input = torch.randn(1, 3, 256, 256)
+    device = model_device()
+    dummy_input = dummy_input.to(device)
+
     onnx_file_name = "{}/image_zoomx.onnx".format(args.output)
     checkpoints = "models/ImageZoomx.pth"
 
@@ -85,7 +107,7 @@ if __name__ == '__main__':
 
         # 1. Create and load model.
         torch_model = get_model(checkpoints)
-        torch_model = torch_model.cuda()
+        # torch_model = torch_model.cuda()
         torch_model.eval()
 
         # 2. Model export
@@ -93,7 +115,8 @@ if __name__ == '__main__':
 
         input_names = ["input"]
         output_names = ["output"]
-        # dynamic_axes = {'input': {0: "batch"},'output': {0: "batch"}}
+        dynamic_axes = {'input': {2: "height", 3: 'width'},
+                        'output': {2: "height", 3: 'width'}}
 
         torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                           input_names=input_names,
@@ -101,7 +124,8 @@ if __name__ == '__main__':
                           verbose=True,
                           opset_version=11,
                           keep_initializers_as_inputs=False,
-                          export_params=True)
+                          export_params=True,
+                          dynamic_axes=dynamic_axes)
 
         # 3. Optimize model
         # print('Checking model ...')
@@ -114,6 +138,8 @@ if __name__ == '__main__':
 
     def verify_onnx():
         """Verify onnx model."""
+
+        sys.exit("Sorry, this function NOT work for grid_sampler, please use onnxservice to test.")
 
         torch_model = get_model(checkpoints)
         torch_model.eval()
@@ -132,41 +158,6 @@ if __name__ == '__main__':
         np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03)
         print("Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(onnx_file_name))
 
-    def onnx_predict():
-        print("Onnx predicting ...")
-
-        #
-        # /************************************************************************************
-        # ***
-        # ***    MS: Define Input/Output File
-        # ***
-        # ************************************************************************************/
-        #
-
-        input_image_file = "lena.png"
-        output_image_file = "{}/{}".format(args.output, input_image_file)
-
-        # /************************************************************************************
-        # ***
-        # ***    MS: Normal Predict Flow
-        # ***
-        # ************************************************************************************/
-        image = Image.open(input_image_file).convert("RGB")
-        onnx_model = onnx_load(onnx_file_name)
-
-        start_time = time.time()
-        totensor = transforms.ToTensor()
-        toimage = transforms.ToPILImage()
-
-        input_image_tensor = totensor(input_image).unsqueeze(0)
-        output_image_tensor = onnx_forward(onnx_model, input_image_tensor)
-        output_image = toimage(output_image_tensor.squeeze(0))
-
-        spend_time = time.time() - start_time
-        print("Spend time: {:.2f} seconds".format(spend_time))
-
-        output_image.save(output_image_file)
-
     #
     # /************************************************************************************
     # ***
@@ -180,6 +171,3 @@ if __name__ == '__main__':
 
     if args.verify:
         verify_onnx()
-
-    if args.predict:
-        onnx_predict()

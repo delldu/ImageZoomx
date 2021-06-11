@@ -35,5 +35,7 @@ class MLP(nn.Module):
 
     def forward(self, x):
         shape = x.shape[:-1]
+        # x.size() -- torch.Size([65536, 3])
         x = self.layers(x.view(-1, x.shape[-1]))
-        return x.view(*shape, -1)
+        # (Pdb) pp shape -- torch.Size([65536])
+        return x.view(shape[0], -1)
