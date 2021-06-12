@@ -148,6 +148,10 @@ class EDSR(nn.Module):
         else:
             x = self.tail(res)
         #x = self.add_mean(x)
+
+        B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
+        x = F.unfold(x, 3, padding=1).view(B, C * 9, H, W)
+
         return x
 
     def load_state_dict(self, state_dict, strict=True):

@@ -17,10 +17,8 @@ import torch.nn.functional as F
 
 import pdb
 
-# @torch.jit.script
 def make_grid(H, W):
     """Make standard grid for H, W."""
-
     grid_h = torch.arange(-1.0, 1.0, 2.0/W) + 2.0/W
     grid_h = grid_h.view(1, 1, W).expand(-1, H, -1)
     grid_v = torch.arange(-1.0, 1.0, 2.0/H) + 2.0/H
@@ -31,37 +29,7 @@ def make_grid(H, W):
 
     return grid
 
-# @torch.jit.script
-# def make_grid_via_feat(feat):
-#     """Make grid via feat."""
-    
-#     H, W = feat.shape[2], feat.shape[3]
-#     grid_h = torch.arange(-1.0, 1.0, 2.0/W) + 2.0/W
-#     grid_h = grid_h.view(1, 1, W).expand(-1, H, -1)
-#     grid_v = torch.arange(-1.0, 1.0, 2.0/H) + 2.0/H
-#     grid_v = grid_v.view(1, H, 1).expand(-1, -1, W)
-#     grid = torch.cat([grid_h, grid_v], dim=0)
-#     grid = grid.permute(1, 2, 0)
-#     # grid.size() -- torch.Size([H, W, 2])
-
-#     return grid
-
-# @torch.jit.script
-# def block_loop(mlp, feat, coord, cell, bs):
-#     n = coord.shape[1]
-#     ql = 0
-#     preds = []
-#     while ql < n:
-#         qr = min(ql + bs, n)
-#         pred = mlp(feat, coord[:, ql: qr, :], cell[:, ql: qr, :])
-#         preds.append(pred)
-#         ql = qr
-#     pred = torch.cat(preds, dim=1)
-#     return pred
-
-# class ImageZoomxModel(nn.Module):
-class ImageZoomxModel(torch.jit.ScriptModule):
-
+class ImageZoomxModel(nn.Module):
     """ImageZoomx Model."""
 
     def __init__(self, h = 1024, w = 1024):
@@ -72,10 +40,9 @@ class ImageZoomxModel(torch.jit.ScriptModule):
 
         in_dim = self.encoder.out_dim
         # self.encoder.out_dim -- 64
-        # self.feat_unfold -- True
         in_dim *= 9
-        in_dim += 2 # attach coord
-        in_dim += 2
+        in_dim += 2 # attach grid
+        in_dim += 2 # attach cell
 
         out_dim = 3
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
@@ -87,31 +54,23 @@ class ImageZoomxModel(torch.jit.ScriptModule):
 
         self.grid = make_grid(h, w)
         self.cell = torch.ones_like(self.grid)
-        self.cell[:, 0] *= 2 / self.h
-        self.cell[:, 1] *= 2 / self.w
-        self.feat = torch.randn(1, 3, 255, 255)
+        self.cell[:, :, 0] *= 2 / self.h
+        self.cell[:, :, 1] *= 2 / self.w
+        # self.feat = torch.randn(1, 3, 255, 255)
 
-    @torch.jit.script_method
     def query_rgb(self, feat, grid, cell):
-        # (Pdb) pp grid.size(), cell.size()
-        # (torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
+        # (Pdb) feat.size(), grid.size(), cell.size()
+        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
 
-        # feat = self.feat
         B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
         feat_grid = make_grid(H, W).permute(2, 0, 1).unsqueeze(0).expand(B, 2, H, W)
         feat_grid = feat_grid.to(feat.device)
+        # feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
         batch, chan = grid.shape[:2]
-        # grid.size() -- torch.Size([1, 30000, 2])
 
-        # (Pdb) feat.size(), grid.size(), cell.size()
-        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
         feat = F.unfold(feat, 3, padding=1).view(B, C * 9, H, W)
-        # (Pdb) self.feat.size() -- torch.Size([1, 64, 96, 128])
         # (Pdb) feat.size() -- torch.Size([1, 576, 96, 128])
-
-
-        # feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
         eps_shift = 1e-6
         delta_h = 1 / H
@@ -127,19 +86,13 @@ class ImageZoomxModel(torch.jit.ScriptModule):
         for r in [-1, 1]:
             for c in [-1, 1]:
                 fine_grid = grid.clone()
-                # fine_grid[:, :, 0] += r * delta_h + eps_shift
-                # fine_grid[:, :, 1] += c * delta_w + eps_shift
-                # fine_grid.clamp_(-1 + 1e-6, 1 - 1e-6)
 
                 fine_grid[:, :, 0] += r * delta_h
                 fine_grid[:, :, 1] += c * delta_w
                 fine_grid.clamp_(-1 + eps_shift, 1 - eps_shift)
                 fine_grid = fine_grid.flip(-1).unsqueeze(1)
 
-                # F.grid_sample(feat, fine_grid.flip(-1).unsqueeze(1),mode='nearest', align_corners=False).size() --
-                # torch.Size([1, 576, 1, 65536])
                 q_feat = F.grid_sample(feat, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
-
                 # (Pdb) q_feat.size() -- torch.Size([1, 30000, 576])
 
                 q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
@@ -180,18 +133,16 @@ class ImageZoomxModel(torch.jit.ScriptModule):
 
         return ret
 
-    # @torch.jit.script_method
-    def forward(self, x):
+    def forward1(self, x):
         """Forward."""
 
         # with torch.no_grad():
         #     self.feat = self.encoder(x)
 
-        self.feat = self.encoder(x)
+        feat = self.encoder(x)
         coord = self.grid.to(x.device).view(-1, 2).unsqueeze(0)
         cell = self.cell.to(x.device).view(-1, 2).unsqueeze(0)
 
-        # mlp = self.query_rgb()
 
         # pred = block_loop(mlp, self.feat, coord, cell, 128 * 128)
         # # pred.size() -- torch.Size([1, 1048576, 3])
@@ -205,7 +156,7 @@ class ImageZoomxModel(torch.jit.ScriptModule):
         preds = []
         while ql < n:
             qr = min(ql + bsize, n)
-            pred = self.query_rgb(coord[:, ql: qr, :], cell[:, ql: qr, :])
+            pred = self.query_rgb(feat, coord[:, ql: qr, :], cell[:, ql: qr, :])
             preds.append(pred)
             ql = qr
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
@@ -216,9 +167,13 @@ class ImageZoomxModel(torch.jit.ScriptModule):
 
         return pred
 
+    def forward(self, x):
+        # return self.encoder(x)
+        x = torch.randn(3000, 580)
+        return self.imnet(x.view(-1, 580))
+
 
 class MLP(nn.Module):
-
     def __init__(self, in_dim, out_dim, hidden_list):
         super().__init__()
         layers = []
@@ -291,7 +246,6 @@ class ResBlock(nn.Module):
         res += x
 
         return res
-
 
 class EDSR(nn.Module):
     def __init__(self, conv=default_conv):

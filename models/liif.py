@@ -64,26 +64,18 @@ class LIIF(nn.Module):
         # (Pdb) input.size()
         # torch.Size([1, 3, 384, 510])
         # images/0803.png: PNG image data, 510 x 384, 8-bit/color RGB, non-interlaced
-        # (Pdb) self.feat.size() -- torch.Size([1, 64, 384, 510])
-
+        # (Pdb) self.feat.size() -- torch.Size([1, 576, 384, 510])
         return self.feat
 
-
-    def query_rgb(self, grid, cell):
-        # (Pdb) pp grid.size(), cell.size()
+    def query_rgb(self, s_grid, s_cell):
+        # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
 
         feat = self.feat
         B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
-
-        batch, chan = grid.shape[:2]
-        # grid.size() -- torch.Size([1, 30000, 2])
-
-        # (Pdb) feat.size(), grid.size(), cell.size()
-        # (torch.Size([1, 64, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
-        feat = F.unfold(feat, 3, padding=1).view(B, C * 9, H, W)
-        # (Pdb) self.feat.size() -- torch.Size([1, 64, 96, 128])
-        # (Pdb) feat.size() -- torch.Size([1, 576, 96, 128])
+        batch, chan = s_grid.shape[:2]
+        # (Pdb) feat.size(), s_grid.size(), s_cell.size()
+        # (torch.Size([1, 576, 96, 128]), torch.Size([1, 30000, 2]), torch.Size([1, 30000, 2]))
 
         feat_grid = make_coord((H, W), flatten=False).cuda() \
             .permute(2, 0, 1) \
@@ -93,7 +85,7 @@ class LIIF(nn.Module):
         eps_shift = 1e-6
         delta_h = 1 / H
         delta_w = 1 / W
-        q_cell = cell.clone()
+        q_cell = s_cell.clone()
         q_cell[:, :, 0] *= H
         q_cell[:, :, 1] *= W
         # (Pdb) q_cell.size() -- torch.Size([1, 30000, 2])
@@ -103,7 +95,7 @@ class LIIF(nn.Module):
         areas = []
         for r in [-1, 1]:
             for c in [-1, 1]:
-                fine_grid = grid.clone()
+                fine_grid = s_grid.clone()
                 # fine_grid[:, :, 0] += r * delta_h + eps_shift
                 # fine_grid[:, :, 1] += c * delta_w + eps_shift
                 # fine_grid.clamp_(-1 + 1e-6, 1 - 1e-6)
@@ -135,7 +127,7 @@ class LIIF(nn.Module):
                 q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
                 # (Pdb) q_grid.size() -- torch.Size([1, 30000, 2])
 
-                q_grid = grid - q_grid
+                q_grid = s_grid - q_grid
                 q_grid[:, :, 0] *= H
                 q_grid[:, :, 1] *= W
                 # (Pdb) q_grid.size() -- torch.Size([1, 30000, 2])
