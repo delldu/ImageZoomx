@@ -74,12 +74,12 @@ class ImageZoomxModel(nn.Module):
         preds = []
         while start < n:
             stop = min(start + bs, n)
-            s_grid = grid[:, start: stop, :]
-            s_cell = cell[:, start: stop, :]
+            s_grid = grid[:, start: stop, :].unsqueeze(0)
+            s_cell = cell[:, start: stop, :].unsqueeze(0)
 
             with torch.no_grad():
                 pred = self.imnet(feat, s_grid, s_cell)
-                
+
             preds.append(pred)
             start = stop
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
@@ -127,8 +127,8 @@ class MLP(nn.Module):
 
     def forward(self, feat, s_grid, s_cell):
         # s_grid, s_cell, format from [1, 1, bs, 2] to [1, bs, 2]
-        # s_grid = s_grid.squeeze(0)
-        # s_cell = s_cell.squeeze(0)
+        s_grid = s_grid.squeeze(0)
+        s_cell = s_cell.squeeze(0)
 
         # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
         # (Pdb) pp s_grid.size(), s_cell.size()
