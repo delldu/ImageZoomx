@@ -35,7 +35,6 @@ def model_load(model, path):
         else:
             raise KeyError(n)
 
-
 def model_save(model, path):
     """Save model."""
 

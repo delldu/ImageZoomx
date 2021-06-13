@@ -46,6 +46,6 @@ if __name__ == "__main__":
         input_tensor = totensor(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            output_tensor = model(input_tensor).clamp(0, 1.0).squeeze()
+            output_tensor = model(input_tensor).clamp(0, 1.0).squeeze(0)
 
         toimage(output_tensor.cpu()).show()
