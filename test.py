@@ -19,13 +19,14 @@ def batched_predict(model, inp, coord, cell, bsize):
     # (Pdb) pp bsize -- 30000
     with torch.no_grad():
         model.gen_feat(inp)
+
         n = coord.shape[1]
         # (Pdb) coord.shape -- torch.Size([1, 491520, 2])
         ql = 0
         preds = []
         while ql < n:
             qr = min(ql + bsize, n)
-            pred = model.query_rgb(coord[:, ql: qr, :], cell[:, ql: qr, :])
+            pred = model.imnet(model.feat, coord[:, ql: qr, :], cell[:, ql: qr, :])
             preds.append(pred)
             ql = qr
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()

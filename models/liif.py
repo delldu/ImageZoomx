@@ -152,6 +152,7 @@ class LIIF(nn.Module):
         ret = 0
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / total_area).unsqueeze(-1)
+
         # # delete loop for onnx
         # ret += preds[0] * (areas[0]/total_area).unsqueeze(-1)
         # ret += preds[1] * (areas[1]/total_area).unsqueeze(-1)

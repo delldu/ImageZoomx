@@ -136,7 +136,7 @@ class EDSR(nn.Module):
             ]
             self.tail = nn.Sequential(*m_tail)
 
-    def forward(self, x):
+    def simple_forward(self, x):
         #x = self.sub_mean(x)
         x = self.head(x)
 
@@ -149,10 +149,17 @@ class EDSR(nn.Module):
             x = self.tail(res)
         #x = self.add_mean(x)
 
+        return x
+
+    def forward(self, x):
+        x = self.simple_forward(x)
+
         B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
         x = F.unfold(x, 3, padding=1).view(B, C * 9, H, W)
+        # pdb.set_trace()
 
         return x
+
 
     def load_state_dict(self, state_dict, strict=True):
         pdb.set_trace()
