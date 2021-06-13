@@ -110,6 +110,10 @@ if __name__ == '__main__':
         # torch_model = torch_model.cuda()
         torch_model.eval()
 
+        output = torch_model(dummy_input)
+
+        pdb.set_trace()
+
         # 2. Model export
         print("Exporting onnx model to {}...".format(onnx_file_name))
 
