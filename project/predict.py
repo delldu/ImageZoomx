@@ -25,7 +25,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--checkpoint', type=str, default="models/ImageZoomx.pth", help="checkpint file")
-    parser.add_argument('--input', type=str, required=True, help="input image")
+    parser.add_argument('input', type=str, help="input image files (eg: images/small.png)")
+
     args = parser.parse_args()
 
     model = get_model(args.checkpoint)
