@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import pdb
 
 @torch.jit.script
-def make_grid(H:int, W:int, flatten:bool):
+def make_grid(H:int, W:int):
     """Make standard grid for H, W."""
     grid_h = torch.arange(-1.0, 1.0, 2.0/W) + 1.0/W
     grid_h = grid_h.view(1, 1, W).expand(-1, H, -1)
@@ -27,19 +27,15 @@ def make_grid(H:int, W:int, flatten:bool):
     grid_v = grid_v.view(1, H, 1).expand(-1, -1, W)
 
     grid = torch.cat([grid_h, grid_v], dim=0)
-    grid = grid.permute(1, 2, 0)
-    # grid.size() -- torch.Size([H, W, 2])
-    if flatten:
-        grid = grid.view(-1, 2)
-
+    grid = grid.permute(1, 2, 0).unsqueeze(0)
+    # grid.size() -- torch.Size([1, H, W, 2])
     return grid
 
 class ImageZoomxModel(nn.Module):
     """ImageZoomx Model."""
 
-    def __init__(self, h = 1024, w = 1024):
+    def __init__(self):
         """Init model."""
-
         super(ImageZoomxModel, self).__init__()
         self.encoder = EDSR()
 
@@ -51,26 +47,25 @@ class ImageZoomxModel(nn.Module):
 
         out_dim = 3
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
-        self.reset_output_size(h, w)
-
-    def reset_output_size(self, h, w):
-        self.h = h
-        self.w = w
-
-        self.grid = make_grid(h, w, True)
-        # self.grid -- [H * W, 2]
-        self.cell = torch.ones_like(self.grid)
-        self.cell[:, 0] *= 2 / self.h
-        self.cell[:, 1] *= 2 / self.w
 
     def forward(self, x):
+        output_height = 1024
+        output_width = 1024
+
+        grid = make_grid(output_height, output_width)
+        grid = grid.to(x.device)
+
+        cell = torch.ones_like(grid)
+        cell[:, :, :, 0] *= 2.0/output_height
+        cell[:, :, :, 1] *= 2.0/output_width
+
+        grid = grid.view(1, -1, 2)
+        # grid format from [1, h, w, 2] ==> [1, h * w, 2]
+        cell = cell.view(1, -1, 2)
+        # cell format from [1, h, w, 2] ==> [1, h * w, 2]
+
         with torch.no_grad():
             feat = self.encoder(x)
-
-        grid = self.grid.unsqueeze(0)
-        grid = grid.to(x.device)
-        cell = self.cell.unsqueeze(0)
-        cell = cell.to(x.device)
 
         bs = 128 * 128
         n = grid.shape[1]
@@ -80,17 +75,16 @@ class ImageZoomxModel(nn.Module):
         preds = []
         while start < n:
             stop = min(start + bs, n)
-            pred = self.imnet(feat, grid[:, start: stop, :], cell[:, start: stop, :])
+            s_grid = grid[:, start: stop, :].unsqueeze(0)
+            s_cell = cell[:, start: stop, :].unsqueeze(0)
+            pred = self.imnet(feat, s_grid, s_cell)
             preds.append(pred)
             start = stop
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
-        # (105, torch.Size([1, 65536, 3]), torch.Size([1, 65536, 3]), torch.Size([1, 25728, 3]))
-        y = torch.cat(preds, dim=1)
+        # (105, torch.Size([1, bs, 3]), torch.Size([1, bs, 3]), torch.Size([1, bs, 3]))
+        y = torch.cat(preds, dim=1).clamp(0.0, 1.0)
         # pp y.size() -- torch.Size([1, 1048576, 3])
-
-        y = y[0]
-        y = y.clamp(0, 1).view(self.h, self.w, 3).permute(2, 0, 1).cpu()
-
+        y = y.view(1, output_height, output_width, 3).permute(0, 3, 1, 2)
         return y
 
 
@@ -130,6 +124,10 @@ class MLP(nn.Module):
         return x.view(shape[0], -1)
 
     def forward(self, feat, s_grid, s_cell):
+        # s_grid, s_cell, format from [1, 1, bs, 2] to [1, bs, 2]
+        s_grid = s_grid.squeeze(0)
+        s_cell = s_cell.squeeze(0)
+
         # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, 65536, 2]), torch.Size([1, 65536, 2]))
 
@@ -138,7 +136,7 @@ class MLP(nn.Module):
         # (Pdb) feat.size(), s_grid.size(), s_cell.size()
         # (torch.Size([1, 576, 96, 128]), torch.Size([1, 65536, 2]), torch.Size([1, 65536, 2]))
 
-        feat_grid = make_grid(H, W, False).permute(2, 0, 1).unsqueeze(0).expand(B, 2, H, W)
+        feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
         feat_grid = feat_grid.to(feat.device)
         # feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
@@ -201,16 +199,7 @@ class MLP(nn.Module):
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / total_area).unsqueeze(-1)
 
-        # # delete loop for onnx
-        # ret += preds[0] * (areas[0]/total_area).unsqueeze(-1)
-        # ret += preds[1] * (areas[1]/total_area).unsqueeze(-1)
-        # ret += preds[2] * (areas[2]/total_area).unsqueeze(-1)
-        # ret += preds[3] * (areas[3]/total_area).unsqueeze(-1)
-        # (Pdb) areas[0].size() -- torch.Size([1, 65536])
-        # preds[0].size() -- torch.Size([1, 65536, 3])
-
         return ret
-
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
     return nn.Conv2d(
