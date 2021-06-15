@@ -95,34 +95,31 @@ if __name__ == '__main__':
     # ************************************************************************************/
     #
 
-    dummy_input = torch.randn(1, 3, 256, 256)
-    device = model_device()
-    dummy_input = dummy_input.to(device)
-
-    onnx_file_name = "{}/image_zoomx.onnx".format(args.output)
     checkpoints = "models/ImageZoomx.pth"
+    encoder_onnx_file_name = "{}/image_zoomx_encoder.onnx".format(args.output)
+    transform_onnx_file_name = "{}/image_zoomx_transform.onnx".format(args.output)
 
-    def export_onnx():
+    dummy_encoder_input = torch.randn(1, 3, 256, 256)
+
+    dummy_transform_feat = torch.randn(1, 576, 96, 128)
+    dummy_transform_grid = torch.randn(1, 1, 65536, 2)
+    dummy_transform_cell = torch.randn(1, 1, 65536, 2)
+
+    def export_encoder_onnx():
         """Export onnx model."""
 
         # 1. Create and load model.
-        torch_model = get_model(checkpoints)
-        # torch_model = torch_model.cuda()
+        torch_model = get_model(checkpoints).encoder
         torch_model.eval()
 
-        output = torch_model(dummy_input)
-
-        pdb.set_trace()
-
         # 2. Model export
-        print("Exporting onnx model to {}...".format(onnx_file_name))
+        print("Exporting onnx model to {}...".format(encoder_onnx_file_name))
 
         input_names = ["input"]
         output_names = ["output"]
         dynamic_axes = {'input': {2: "height", 3: 'width'},
                         'output': {2: "height", 3: 'width'}}
-
-        torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+        torch.onnx.export(torch_model, dummy_encoder_input, encoder_onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,
@@ -131,36 +128,82 @@ if __name__ == '__main__':
                           export_params=True,
                           dynamic_axes=dynamic_axes)
 
-        # 3. Optimize model
-        # print('Checking model ...')
-        # onnx_model = onnx.load(onnx_file_name)
-        # onnx.checker.check_model(onnx_model)
-        # https://github.com/onnx/optimizer
+        # 3. Visual model
+        # python -c "import netron; netron.start('output/image_zoomx_encoder.onnx')"
 
-        # 4. Visual model
-        # python -c "import netron; netron.start('output/image_zoomx.onnx')"
 
-    def verify_onnx():
-        """Verify onnx model."""
+    def export_transform_onnx():
+        """Export transform onnx model."""
 
-        sys.exit("Sorry, this function NOT work for grid_sampler, please use onnxservice to test.")
-
-        torch_model = get_model(checkpoints)
+        # 1. Create and load model.
+        torch_model = get_model(checkpoints).imnet
         torch_model.eval()
 
-        onnxruntime_engine = onnx_load(onnx_file_name)
+        # 2. Model export
+        print("Exporting onnx model to {}...".format(transform_onnx_file_name))
+
+        input_names = ["feat", "grid", "cell"]
+        output_names = ["output"]
+        dynamic_axes = {'grid': {2: "batch_size"},
+                        'cell': {2: "batch_size"},
+                        'output': {1: "batch_size"}}
+        torch.onnx.export(torch_model, (dummy_transform_feat, dummy_transform_grid, dummy_transform_cell),
+                          transform_onnx_file_name,
+                          input_names=input_names,
+                          output_names=output_names,
+                          verbose=True,
+                          opset_version=11,
+                          keep_initializers_as_inputs=False,
+                          export_params=True,
+                          dynamic_axes=dynamic_axes)
+
+        # 3. Visual model
+        # python -c "import netron; netron.start('output/image_zoomx_transform.onnx')"
+
+
+    def verify_encoder_onnx():
+        """Verify encoder onnx model."""
+
+        torch_model = get_model(checkpoints).encoder
+        torch_model.eval()
+
+        onnxruntime_engine = onnx_load(encoder_onnx_file_name)
 
         def to_numpy(tensor):
             return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
         with torch.no_grad():
-            torch_output = torch_model(dummy_input)
+            torch_output = torch_model(dummy_encoder_input)
 
-        onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+        onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_encoder_input)}
         onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
 
         np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03)
-        print("Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(onnx_file_name))
+        print("Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(encoder_onnx_file_name))
+
+
+    def verify_transform_onnx():
+        """Verify transform onnx model."""
+
+        torch_model = get_model(checkpoints).imnet
+        torch_model.eval()
+
+        onnxruntime_engine = onnx_load(transform_onnx_file_name)
+
+        def to_numpy(tensor):
+            return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+        with torch.no_grad():
+            torch_output = torch_model(dummy_transform_feat, dummy_transform_grid, dummy_transform_cell)
+
+        onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_encoder_feat),
+            onnxruntime_engine.get_inputs()[1].name: to_numpy(dummy_encoder_grid),
+            onnxruntime_engine.get_inputs()[2].name: to_numpy(dummy_encoder_cell)}
+        onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+
+        np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03)
+        print("Onnx model {} has been tested with ONNXRuntime, result sounds good !".format(encoder_onnx_file_name))
+
 
     #
     # /************************************************************************************
@@ -171,7 +214,12 @@ if __name__ == '__main__':
     #
 
     if args.export:
-        export_onnx()
+        export_encoder_onnx()
+        export_transform_onnx()
 
     if args.verify:
-        verify_onnx()
+        verify_encoder_onnx()
+
+        # For onnx does not support grid_sampler, please verify it in onnxruntime service
+        print("Transform does not been tested here for onnx not support grid_sampler at now")
+        # verify_transform_onnx()

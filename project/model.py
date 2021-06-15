@@ -44,11 +44,8 @@ def model_save(model, path):
 def get_model(checkpoint):
     """Create model."""
 
-    model_setenv()
     model = ImageZoomxModel()
     model_load(model, checkpoint)
-    device = model_device()
-    model.to(device)
 
     return model
 

@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 import pdb
 
-# @torch.jit.script
+@torch.jit.script
 def make_grid(H:int, W:int):
     """Make standard grid for H, W."""
     grid_h = torch.arange(-1.0, 1.0, 2.0/H) + 1.0/H
@@ -126,6 +126,10 @@ class MLP(nn.Module):
         return x.view(shape[0], -1)
 
     def forward(self, feat, s_grid, s_cell):
+        # (Pdb) pp feat.size() -- torch.Size([1, 576, 96, 128])
+        # (Pdb) pp s_grid.size() -- torch.Size([1, 1, 65536, 2])
+        # (Pdb) s_cell.size() -- torch.Size([1, 1, 65536, 2])
+
         # s_grid, s_cell, format from [1, 1, bs, 2] to [1, bs, 2]
         s_grid = s_grid.squeeze(0)
         s_cell = s_cell.squeeze(0)
@@ -137,6 +141,7 @@ class MLP(nn.Module):
         B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
         batch, chan = s_grid.shape[:2]
 
+        # Because feat size is constant, so donot care about feat_grid in onnx model warning !!!
         feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
         feat_grid = feat_grid.to(feat.device)
         # feat_grid.size() -- torch.Size([1, 2, 96, 128])
@@ -199,8 +204,7 @@ class MLP(nn.Module):
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / total_area).unsqueeze(-1)
 
-        # pdb.set_trace()
-
+        # ret.size() -- torch.Size([1, bs, 3])
         return ret
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
