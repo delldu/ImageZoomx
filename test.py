@@ -29,10 +29,10 @@ def batched_predict(model, inp, coord, cell, bsize):
             pred = model.imnet(model.feat, coord[:, ql: qr, :], cell[:, ql: qr, :])
             preds.append(pred)
             ql = qr
+
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
         # (105, torch.Size([1, 30000, 3]), torch.Size([1, 30000, 3]), torch.Size([1, 25728, 3]))
         pred = torch.cat(preds, dim=1)
-
     # (Pdb) pred.size() -- torch.Size([1, 491520, 3])
     return pred
 
