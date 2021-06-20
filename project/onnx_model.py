@@ -126,7 +126,7 @@ if __name__ == '__main__':
         output_names = ["output"]
         dynamic_axes = {'input': {2: "height", 3: 'width'},
                         'output': {2: "height", 3: 'width'}}
-        torch.onnx.export(script_model, (dummy_encoder_input, dummy_output_size), encoder_onnx_file_name,
+        torch.onnx.export(torch_model, (dummy_encoder_input, dummy_output_size), encoder_onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,

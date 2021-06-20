@@ -43,7 +43,6 @@ class ImageZoomxModel(nn.Module):
         in_dim *= 9
         in_dim += 2 # attach grid
         in_dim += 2 # attach cell
-
         out_dim = 3
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
 
@@ -142,7 +141,7 @@ class MLP(nn.Module):
         B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
         batch, chan = s_grid.shape[:2]
 
-        # Because feat size is constant, so donot care about feat_grid in onnx model warning !!!
+        # feat_grid depend on feat size !!!
         feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
         feat_grid = feat_grid.to(feat.device)
         # feat_grid.size() -- torch.Size([1, 2, 96, 128])
@@ -209,9 +208,7 @@ class MLP(nn.Module):
         return ret
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
-    return nn.Conv2d(
-        in_channels, out_channels, kernel_size,
-        padding=(kernel_size//2), bias=bias)
+    return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size//2), bias=bias)
 
 class MeanShift(nn.Conv2d):
     def __init__(
@@ -281,6 +278,7 @@ class EDSR(nn.Module):
         res = self.body(x)
         x += res
         #x = self.add_mean(x)
+
         return x
 
     def forward(self, x):
