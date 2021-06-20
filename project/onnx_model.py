@@ -100,6 +100,7 @@ if __name__ == '__main__':
     transform_onnx_file_name = "{}/image_zoomx_transform.onnx".format(args.output)
 
     dummy_encoder_input = torch.randn(1, 3, 256, 256)
+    dummy_output_size = torch.IntTensor([1024, 1024])
 
     dummy_transform_feat = torch.randn(1, 576, 96, 128)
     dummy_transform_grid = torch.randn(1, 1, 65536, 2)
@@ -109,24 +110,31 @@ if __name__ == '__main__':
         """Export onnx model."""
 
         # 1. Create and load model.
-        torch_model = get_model(checkpoints).encoder
+        torch_model = get_model(checkpoints)
         torch_model.eval()
+        script_model = torch.jit.script(torch_model)
+        # traced_model = torch.jit.trace(script_model, (dummy_encoder_input, dummy_output_size))
+        pdb.set_trace()
+
+        with torch.no_grad():
+            torch_output = torch_model(dummy_encoder_input, dummy_output_size)
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(encoder_onnx_file_name))
 
-        input_names = ["input"]
+        input_names = ["input", "output_size"]
         output_names = ["output"]
         dynamic_axes = {'input': {2: "height", 3: 'width'},
                         'output': {2: "height", 3: 'width'}}
-        torch.onnx.export(torch_model, dummy_encoder_input, encoder_onnx_file_name,
+        torch.onnx.export(script_model, (dummy_encoder_input, dummy_output_size), encoder_onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,
                           opset_version=11,
                           keep_initializers_as_inputs=False,
                           export_params=True,
-                          dynamic_axes=dynamic_axes)
+                          dynamic_axes=dynamic_axes,
+                          example_outputs=torch_output)
 
         # 3. Visual model
         # python -c "import netron; netron.start('output/image_zoomx_encoder.onnx')"
@@ -138,6 +146,8 @@ if __name__ == '__main__':
         # 1. Create and load model.
         torch_model = get_model(checkpoints).imnet
         torch_model.eval()
+        script_model = torch.jit.script(torch_model)
+        pdb.set_trace()
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(transform_onnx_file_name))

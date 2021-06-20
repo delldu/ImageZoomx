@@ -14,6 +14,7 @@ import pdb  # For debug
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import List
 
 import pdb
 
@@ -46,9 +47,12 @@ class ImageZoomxModel(nn.Module):
         out_dim = 3
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
 
-    def forward(self, x):
-        output_height = 1024
-        output_width = 1024
+    def forward(self, x, output_size):
+        '''
+            output_size = torch.IntTensor([1024, 2048])
+        '''
+        output_height = int(output_size[0])
+        output_width = int(output_size[1])
 
         grid = make_grid(output_height, output_width)
         grid = grid.to(x.device)
@@ -63,37 +67,34 @@ class ImageZoomxModel(nn.Module):
         # cell format from [1, h, w, 2] ==> [1, h * w, 2]
 
         bs = 256 * 256
-        n = grid.shape[1]
-        # (Pdb) grid.shape -- torch.Size([1, h * w, 2])
+        n = output_height * output_width
 
+        feat = self.encoder(x)
 
-        with torch.no_grad():
-            feat = self.encoder(x)
+        preds: List[torch.Tensor] = []
 
         start = 0
-        preds = []
         while start < n:
             stop = min(start + bs, n)
             s_grid = grid[:, start: stop, :].unsqueeze(0)
             s_cell = cell[:, start: stop, :].unsqueeze(0)
 
-            with torch.no_grad():
-                pred = self.imnet(feat, s_grid, s_cell)
-
+            pred = self.imnet(feat, s_grid, s_cell)
             preds.append(pred)
             start = stop
+
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
         # (105, torch.Size([1, bs, 3]), torch.Size([1, bs, 3]), torch.Size([1, bs, 3]))
         y = torch.cat(preds, dim=1)
         # pp y.size() -- torch.Size([1, 1048576, 3])
         y = y[0].view(1, output_height, output_width, 3).permute(0, 3, 1, 2)
-        return y
+        return y.clamp(0, 1.0)
 
 
 class MLP(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_list):
+    def __init__(self, in_dim, out_dim, hidden_list: List[int]):
         super().__init__()
-        layers = []
+        layers: List[nn.Module()] = []
         lastv = in_dim
         for hidden in hidden_list:
             layers.append(nn.Linear(lastv, hidden))
@@ -125,7 +126,7 @@ class MLP(nn.Module):
         # (Pdb) pp shape -- torch.Size([bs])
         return x.view(shape[0], -1)
 
-    def forward(self, feat, s_grid, s_cell):
+    def forward(self, feat, s_grid, s_cell) -> torch.Tensor:
         # (Pdb) pp feat.size() -- torch.Size([1, 576, 96, 128])
         # (Pdb) pp s_grid.size() -- torch.Size([1, 1, 65536, 2])
         # (Pdb) s_cell.size() -- torch.Size([1, 1, 65536, 2])
@@ -155,8 +156,8 @@ class MLP(nn.Module):
         # (Pdb) q_cell.size() -- torch.Size([1, bs, 2])
         # (Pdb) q_cell.min(), q_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
 
-        preds = []
-        areas = []
+        preds: List[torch.Tensor] = []
+        areas: List[torch.Tensor] = []
         for r in [-1, 1]:
             for c in [-1, 1]:
                 fine_grid = s_grid.clone()
@@ -200,7 +201,7 @@ class MLP(nn.Module):
         t = areas[0]; areas[0] = areas[3]; areas[3] = t
         t = areas[1]; areas[1] = areas[2]; areas[2] = t
 
-        ret = 0
+        ret = torch.zeros_like(preds[0])
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / total_area).unsqueeze(-1)
 
@@ -290,3 +291,9 @@ class EDSR(nn.Module):
         # pdb.set_trace()
 
         return x
+
+
+if __name__ == '__main__':
+    model = ImageZoomxModel()
+
+    torch.jit.script(model)
