@@ -143,13 +143,14 @@ class EDSR(nn.Module):
         res = self.body(x)
         res += x
 
-        if self.args.no_upsampling:
-            x = res
-        else:
-            x = self.tail(res)
-        #x = self.add_mean(x)
+        # if self.args.no_upsampling:
+        #     x = res
+        # else:
+        #     x = self.tail(res)
+        # #x = self.add_mean(x)
 
-        return x
+        # return x
+        return res
 
     def forward(self, x):
         x = self.simple_forward(x)

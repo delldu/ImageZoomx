@@ -34,6 +34,9 @@ if __name__ == '__main__':
 
     model = models.make(torch.load(args.model)['model'], load_sd=True).cuda()
 
+    torch.jit.script(model)
+    pdb.set_trace()
+
     # h, w = list(map(int, args.resolution.split(',')))
     h = img.shape[1]
     w = img.shape[2]

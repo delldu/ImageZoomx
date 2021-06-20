@@ -110,23 +110,20 @@ if __name__ == '__main__':
         """Export onnx model."""
 
         # 1. Create and load model.
-        torch_model = get_model(checkpoints)
+        torch_model = get_model(checkpoints).encoder
         torch_model.eval()
-        script_model = torch.jit.script(torch_model)
-        # traced_model = torch.jit.trace(script_model, (dummy_encoder_input, dummy_output_size))
-        pdb.set_trace()
 
         with torch.no_grad():
-            torch_output = torch_model(dummy_encoder_input, dummy_output_size)
+            torch_output = torch_model(dummy_encoder_input)
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(encoder_onnx_file_name))
 
-        input_names = ["input", "output_size"]
+        input_names = ["input"]
         output_names = ["output"]
         dynamic_axes = {'input': {2: "height", 3: 'width'},
                         'output': {2: "height", 3: 'width'}}
-        torch.onnx.export(torch_model, (dummy_encoder_input, dummy_output_size), encoder_onnx_file_name,
+        torch.onnx.export(torch_model, dummy_encoder_input, encoder_onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,
@@ -146,15 +143,14 @@ if __name__ == '__main__':
         # 1. Create and load model.
         torch_model = get_model(checkpoints).imnet
         torch_model.eval()
-        script_model = torch.jit.script(torch_model)
-        pdb.set_trace()
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(transform_onnx_file_name))
 
         input_names = ["feat", "grid", "cell"]
         output_names = ["output"]
-        dynamic_axes = {'grid': {2: "batch_size"},
+        dynamic_axes = {'feat': {2: "height", 3: "width"},
+                        'grid': {2: "batch_size"},
                         'cell': {2: "batch_size"},
                         'output': {1: "batch_size"}}
         torch.onnx.export(torch_model, (dummy_transform_feat, dummy_transform_grid, dummy_transform_cell),

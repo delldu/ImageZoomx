@@ -60,14 +60,14 @@ class ImageZoomxModel(nn.Module):
         cell[:, :, :, 0] *= 2.0/output_height
         cell[:, :, :, 1] *= 2.0/output_width
 
-        grid = grid.view(1, -1, 2)
+        n = output_height * output_width
+
+        grid = grid.view(1, n, 2)
         # grid format from [1, h, w, 2] ==> [1, h * w, 2]
-        cell = cell.view(1, -1, 2)
+        cell = cell.view(1, n, 2)
         # cell format from [1, h, w, 2] ==> [1, h * w, 2]
 
         bs = 256 * 256
-        n = output_height * output_width
-
         feat = self.encoder(x)
 
         preds: List[torch.Tensor] = []
@@ -119,11 +119,10 @@ class MLP(nn.Module):
         # hidden_list = [256, 256, 256, 256]
 
     def simple_forward(self, x):
-        # x.size() -- torch.Size([bs, 3])
-        shape = x.shape[:-1]
-        x = self.layers(x.view(-1, x.shape[-1]))
-        # (Pdb) pp shape -- torch.Size([bs])
-        return x.view(shape[0], -1)
+        # x.size() -- torch.Size([bs, 580])
+        bs = x.shape[0]
+        x = self.layers(x)
+        return x.view(bs, -1)
 
     def forward(self, feat, s_grid, s_cell) -> torch.Tensor:
         # (Pdb) pp feat.size() -- torch.Size([1, 576, 96, 128])
@@ -134,17 +133,15 @@ class MLP(nn.Module):
         s_grid = s_grid.squeeze(0)
         s_cell = s_cell.squeeze(0)
 
-        # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
         # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, bs, 2]), torch.Size([1, bs, 2]))
-
-        B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
         batch, chan = s_grid.shape[:2]
 
-        # feat_grid depend on feat size !!!
+        B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
+        # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
         feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
         feat_grid = feat_grid.to(feat.device)
-        # feat_grid.size() -- torch.Size([1, 2, 96, 128])
+        # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
         eps_shift = 1e-6
         delta_h = 1 / H
@@ -294,4 +291,10 @@ class EDSR(nn.Module):
 if __name__ == '__main__':
     model = ImageZoomxModel()
 
-    torch.jit.script(model)
+    script_model = torch.jit.script(model)
+
+    print(script_model.code)
+    print("----------------------------")
+    print(script_model.graph)
+
+    script_model.save("output/image_zoomx.th")
