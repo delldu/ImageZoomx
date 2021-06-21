@@ -31,21 +31,21 @@ from PIL import Image
 #
 from model import get_model, model_device, model_setenv
 
-from torch.onnx.symbolic_helper import parse_args
-from torch.onnx.symbolic_registry import register_op
+# from torch.onnx.symbolic_helper import parse_args
+# from torch.onnx.symbolic_registry import register_op
 
-@parse_args('v', 'v', 'i', 'i', 'i')
-def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
-    '''
-    torch.nn.functional.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=None)
-    Need convert interpolation_mode, padding_mode ? NO for simpler at now !!!
-    '''
-    return g.op('onnxservice::grid_sampler', input, grid,
-        interpolation_mode_i=interpolation_mode,
-        padding_mode_i=padding_mode,
-        align_corners_i=align_corners)
+# @parse_args('v', 'v', 'i', 'i', 'i')
+# def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
+#     '''
+#     torch.nn.functional.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=None)
+#     Need convert interpolation_mode, padding_mode ? NO for simpler at now !!!
+#     '''
+#     return g.op('onnxservice::grid_sampler', input, grid,
+#         interpolation_mode_i=interpolation_mode,
+#         padding_mode_i=padding_mode,
+#         align_corners_i=align_corners)
 
-register_op('grid_sampler', grid_sampler, '', 11)
+# register_op('grid_sampler', grid_sampler, '', 11)
 
 
 def onnx_load(onnx_file):

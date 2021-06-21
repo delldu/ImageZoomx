@@ -34,6 +34,7 @@ if __name__ == "__main__":
     device = model_device()
     model = model.to(device)
     model.eval()
+    model = torch.jit.script(model)
 
     totensor = transforms.ToTensor()
     toimage = transforms.ToPILImage()

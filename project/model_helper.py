@@ -18,6 +18,23 @@ from typing import List
 
 import pdb
 
+from torch.onnx.symbolic_helper import parse_args
+from torch.onnx.symbolic_registry import register_op
+
+@parse_args('v', 'v', 'i', 'i', 'i')
+def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
+    '''
+    torch.nn.functional.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=None)
+    Need convert interpolation_mode, padding_mode ? NO for simpler at now !!!
+    '''
+    return g.op('onnxservice::grid_sampler', input, grid,
+        interpolation_mode_i=interpolation_mode,
+        padding_mode_i=padding_mode,
+        align_corners_i=align_corners)
+
+register_op('grid_sampler', grid_sampler, '', 11)
+
+
 @torch.jit.script
 def make_grid(H:int, W:int):
     """Make standard grid for H, W."""
@@ -50,6 +67,7 @@ class ImageZoomxModel(nn.Module):
         '''
             output_size = torch.IntTensor([1024, 2048])
         '''
+
         output_height = int(output_size[0])
         output_width = int(output_size[1])
 
@@ -57,10 +75,11 @@ class ImageZoomxModel(nn.Module):
         grid = grid.to(x.device)
 
         cell = torch.ones_like(grid)
+        # xxxx8888
         cell[:, :, :, 0] *= 2.0/output_height
         cell[:, :, :, 1] *= 2.0/output_width
 
-        n = output_height * output_width
+        n = int(output_height * output_width)
 
         grid = grid.view(1, n, 2)
         # grid format from [1, h, w, 2] ==> [1, h * w, 2]
@@ -71,10 +90,13 @@ class ImageZoomxModel(nn.Module):
         feat = self.encoder(x)
 
         preds: List[torch.Tensor] = []
-
         start = 0
         while start < n:
-            stop = min(start + bs, n)
+            # stop = min(start + bs, n)
+            stop = start + bs
+            if stop > n:
+                stop = n
+
             s_grid = grid[:, start: stop, :].unsqueeze(0)
             s_cell = cell[:, start: stop, :].unsqueeze(0)
 
@@ -124,7 +146,7 @@ class MLP(nn.Module):
         x = self.layers(x)
         return x.view(bs, -1)
 
-    def forward(self, feat, s_grid, s_cell) -> torch.Tensor:
+    def forward(self, feat, s_grid, s_cell):
         # (Pdb) pp feat.size() -- torch.Size([1, 576, 96, 128])
         # (Pdb) pp s_grid.size() -- torch.Size([1, 1, 65536, 2])
         # (Pdb) s_cell.size() -- torch.Size([1, 1, 65536, 2])
@@ -147,8 +169,10 @@ class MLP(nn.Module):
         delta_h = 1 / H
         delta_w = 1 / W
         q_cell = s_cell.clone()
+        # xxxx8888
         q_cell[:, :, 0] *= H
         q_cell[:, :, 1] *= W
+
         # (Pdb) q_cell.size() -- torch.Size([1, bs, 2])
         # (Pdb) q_cell.min(), q_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
 
@@ -157,9 +181,12 @@ class MLP(nn.Module):
         for r in [-1, 1]:
             for c in [-1, 1]:
                 fine_grid = s_grid.clone()
+
+                # xxxx8888
                 fine_grid[:, :, 0] += r * delta_h
                 fine_grid[:, :, 1] += c * delta_w
-                fine_grid.clamp_(-1 + eps_shift, 1 - eps_shift)
+
+                fine_grid = fine_grid.clamp(-1 + eps_shift, 1 - eps_shift)
                 fine_grid = fine_grid.flip(-1).unsqueeze(1)
 
                 # (Pdb) fine_grid.size()
@@ -172,8 +199,10 @@ class MLP(nn.Module):
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
 
                 q_grid = s_grid - q_grid
+                # xxxx8888
                 q_grid[:, :, 0] *= H
                 q_grid[:, :, 1] *= W
+
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
                 # (Pdb) q_grid.min(), q_grid.max() -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
 
@@ -189,8 +218,8 @@ class MLP(nn.Module):
                 # (Pdb) pred.size() -- torch.Size([1, bs, 3])
                 preds.append(pred)
 
-                area = torch.abs(q_grid[:, :, 0] * q_grid[:, :, 1])
-                areas.append(area + 1e-9)
+                area = torch.abs(q_grid[:, :, 0] * q_grid[:, :, 1]) + 1e-9
+                areas.append(area)
 
         total_area = torch.stack(areas).sum(dim=0)
 
@@ -198,8 +227,10 @@ class MLP(nn.Module):
         t = areas[1]; areas[1] = areas[2]; areas[2] = t
 
         ret = torch.zeros_like(preds[0])
-        for pred, area in zip(preds, areas):
-            ret = ret + pred * (area / total_area).unsqueeze(-1)
+        # for pred, area in zip(preds, areas):
+        #     ret = ret + pred * (area / total_area).unsqueeze(-1)
+        for i in range(4):
+            ret = ret + preds[i] * (areas[i] / total_area).unsqueeze(-1)
 
         # ret.size() -- torch.Size([1, bs, 3])
         return ret
@@ -237,7 +268,9 @@ class ResBlock(nn.Module):
         self.res_scale = res_scale
 
     def forward(self, x):
-        res = self.body(x).mul(self.res_scale)
+        # xxxx8888, script building error for self.res_scale is not Tensor !
+        # res = self.body(x).mul(self.res_scale)
+        res = self.body(x)
         res += x
 
         return res
@@ -260,7 +293,7 @@ class EDSR(nn.Module):
         m_body = [
             ResBlock(
                 conv, n_feats, kernel_size, act=nn.ReLU(True), res_scale=1
-            ) for _ in range(n_resblocks)
+            ) for i in range(n_resblocks)
         ]
         m_body.append(conv(n_feats, n_feats, kernel_size))
 
@@ -272,7 +305,9 @@ class EDSR(nn.Module):
     def simple_forward(self, x):
         #x = self.sub_mean(x)
         x = self.head(x)
+
         res = self.body(x)
+
         x += res
         #x = self.add_mean(x)
 
@@ -280,7 +315,6 @@ class EDSR(nn.Module):
 
     def forward(self, x):
         x = self.simple_forward(x)
-
         B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
         x = F.unfold(x, 3, padding=1).view(B, C * 9, H, W)
         # pdb.set_trace()
@@ -290,11 +324,23 @@ class EDSR(nn.Module):
 
 if __name__ == '__main__':
     model = ImageZoomxModel()
+    # model = model.encoder
 
     script_model = torch.jit.script(model)
 
     print(script_model.code)
-    print("----------------------------")
+    print("-----------------------------------------------------")
     print(script_model.graph)
-
+    print("-----------------------------------------------------")
     script_model.save("output/image_zoomx.th")
+
+    input_image = torch.randn(1, 3, 256, 256)
+    output_size = torch.Tensor([1024, 1024])
+
+    output_image = script_model(input_image, output_size)
+
+    print("output_image.size: ", output_image.size())
+    print("-----------------------------------------------------")
+
+    torch.onnx.export(script_model, (input_image, output_size), 'output/image_zoomx.onnx',
+        opset_version=11, example_outputs=output_image, verbose=True, enable_onnx_checker=True)
