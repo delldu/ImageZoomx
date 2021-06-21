@@ -76,8 +76,9 @@ class ImageZoomxModel(nn.Module):
 
         cell = torch.ones_like(grid)
         # xxxx8888
-        cell[:, :, :, 0] *= 2.0/output_height
-        cell[:, :, :, 1] *= 2.0/output_width
+        # cell[:, :, :, 0] *= 2.0/output_height
+        # cell[:, :, :, 1] *= 2.0/output_width
+        cell = torch.stack((cell[:, :, :, 0] * 2.0/output_height, cell[:, :, :, 1] * 2.0/output_width), dim=3)
 
         n = int(output_height * output_width)
 
@@ -170,8 +171,9 @@ class MLP(nn.Module):
         delta_w = 1 / W
         q_cell = s_cell.clone()
         # xxxx8888
-        q_cell[:, :, 0] *= H
-        q_cell[:, :, 1] *= W
+        # q_cell[:, :, 0] *= H
+        # q_cell[:, :, 1] *= W
+        q_cell = torch.stack((q_cell[:, :, 0] * H, q_cell[:, :, 1] * W), dim=2)
 
         # (Pdb) q_cell.size() -- torch.Size([1, bs, 2])
         # (Pdb) q_cell.min(), q_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
@@ -183,8 +185,9 @@ class MLP(nn.Module):
                 fine_grid = s_grid.clone()
 
                 # xxxx8888
-                fine_grid[:, :, 0] += r * delta_h
-                fine_grid[:, :, 1] += c * delta_w
+                # fine_grid[:, :, 0] += r * delta_h
+                # fine_grid[:, :, 1] += c * delta_w
+                fine_grid = torch.stack((fine_grid[:, :, 0] + r * delta_h, fine_grid[:, :, 1] + c * delta_w), dim=2)
 
                 fine_grid = fine_grid.clamp(-1 + eps_shift, 1 - eps_shift)
                 fine_grid = fine_grid.flip(-1).unsqueeze(1)
@@ -200,8 +203,9 @@ class MLP(nn.Module):
 
                 q_grid = s_grid - q_grid
                 # xxxx8888
-                q_grid[:, :, 0] *= H
-                q_grid[:, :, 1] *= W
+                # q_grid[:, :, 0] *= H
+                # q_grid[:, :, 1] *= W
+                q_grid = torch.stack((q_grid[:, :, 0] * H, q_grid[:, :, 1] * W), dim=2)
 
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
                 # (Pdb) q_grid.min(), q_grid.max() -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
