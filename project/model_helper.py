@@ -75,10 +75,11 @@ class ImageZoomxModel(nn.Module):
         grid = grid.to(x.device)
 
         cell = torch.ones_like(grid)
-        # xxxx8888
+        # in-place not correct for torch script
         # cell[:, :, :, 0] *= 2.0/output_height
         # cell[:, :, :, 1] *= 2.0/output_width
-        cell = torch.stack((cell[:, :, :, 0] * 2.0/output_height, cell[:, :, :, 1] * 2.0/output_width), dim=3)
+        cell = torch.stack((cell[:, :, :, 0] * 2.0/output_height,
+                            cell[:, :, :, 1] * 2.0/output_width), dim=3)
 
         n = int(output_height * output_width)
 
@@ -90,6 +91,11 @@ class ImageZoomxModel(nn.Module):
         bs = 256 * 256
         feat = self.encoder(x)
 
+        H, W = int(feat.shape[2]), int(feat.shape[3])
+        feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
+        feat_grid = feat_grid.to(feat.device)
+        # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
+
         preds: List[torch.Tensor] = []
         start = 0
         while start < n:
@@ -100,8 +106,12 @@ class ImageZoomxModel(nn.Module):
 
             s_grid = grid[:, start: stop, :].unsqueeze(0)
             s_cell = cell[:, start: stop, :].unsqueeze(0)
+            # (Pdb) pp feat.size(), s_grid.size(), s_cell.size()
+            # (torch.Size([1, 576, 96, 128]),
+            #  torch.Size([1, 1, 65536, 2]),
+            #  torch.Size([1, 1, 65536, 2]))
 
-            pred = self.imnet(feat, s_grid, s_cell)
+            pred = self.imnet(feat, feat_grid, s_grid, s_cell)
             preds.append(pred)
             start = stop
 
@@ -147,7 +157,7 @@ class MLP(nn.Module):
         x = self.layers(x)
         return x.view(bs, -1)
 
-    def forward(self, feat, s_grid, s_cell):
+    def forward(self, feat, feat_grid, s_grid, s_cell):
         # (Pdb) pp feat.size() -- torch.Size([1, 576, 96, 128])
         # (Pdb) pp s_grid.size() -- torch.Size([1, 1, 65536, 2])
         # (Pdb) s_cell.size() -- torch.Size([1, 1, 65536, 2])
@@ -162,21 +172,19 @@ class MLP(nn.Module):
 
         B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
         # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
-        feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
-        feat_grid = feat_grid.to(feat.device)
-        # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
         eps_shift = 1e-6
         delta_h = 1 / H
         delta_w = 1 / W
         q_cell = s_cell.clone()
-        # xxxx8888
+        # in-place not correct for torch script
         # q_cell[:, :, 0] *= H
         # q_cell[:, :, 1] *= W
         q_cell = torch.stack((q_cell[:, :, 0] * H, q_cell[:, :, 1] * W), dim=2)
 
         # (Pdb) q_cell.size() -- torch.Size([1, bs, 2])
-        # (Pdb) q_cell.min(), q_cell.max() -- (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
+        # (Pdb) q_cell.min(), q_cell.max() -- 
+        # (tensor(0.1250, device='cuda:0'), tensor(0.1250, device='cuda:0'))
 
         preds: List[torch.Tensor] = []
         areas: List[torch.Tensor] = []
@@ -184,10 +192,11 @@ class MLP(nn.Module):
             for c in [-1, 1]:
                 fine_grid = s_grid.clone()
 
-                # xxxx8888
+                # in-place not correct for torch script
                 # fine_grid[:, :, 0] += r * delta_h
                 # fine_grid[:, :, 1] += c * delta_w
-                fine_grid = torch.stack((fine_grid[:, :, 0] + r * delta_h, fine_grid[:, :, 1] + c * delta_w), dim=2)
+                fine_grid = torch.stack((fine_grid[:, :, 0] + r * delta_h, 
+                    fine_grid[:, :, 1] + c * delta_w), dim=2)
 
                 fine_grid = fine_grid.clamp(-1 + eps_shift, 1 - eps_shift)
                 fine_grid = fine_grid.flip(-1).unsqueeze(1)
@@ -195,20 +204,23 @@ class MLP(nn.Module):
                 # (Pdb) fine_grid.size()
                 # torch.Size([1, 1, bs, 2])
 
-                q_feat = F.grid_sample(feat, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                q_feat = F.grid_sample(feat, fine_grid, mode='nearest', 
+                    align_corners=False)[:, :, 0, :].permute(0, 2, 1)
                 # (Pdb) q_feat.size() -- torch.Size([1, bs, 576])
 
-                q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', 
+                    align_corners=False)[:, :, 0, :].permute(0, 2, 1)
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
 
                 q_grid = s_grid - q_grid
-                # xxxx8888
+                # in-place not correct for torch script
                 # q_grid[:, :, 0] *= H
                 # q_grid[:, :, 1] *= W
                 q_grid = torch.stack((q_grid[:, :, 0] * H, q_grid[:, :, 1] * W), dim=2)
 
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
-                # (Pdb) q_grid.min(), q_grid.max() -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
+                # (Pdb) q_grid.min(), q_grid.max() 
+                # -- (tensor(-0.9375, device='cuda:0'), tensor(1.9375, device='cuda:0'))
 
                 # MLP Forward ...
                 input = torch.cat([q_feat, q_grid, q_cell], dim=-1).view(batch * chan, -1)
@@ -272,7 +284,7 @@ class ResBlock(nn.Module):
         self.res_scale = res_scale
 
     def forward(self, x):
-        # xxxx8888, script building error for self.res_scale is not Tensor !
+        # torch script error for self.res_scale is not Tensor !
         # res = self.body(x).mul(self.res_scale)
         res = self.body(x)
         res += x
@@ -324,27 +336,3 @@ class EDSR(nn.Module):
         # pdb.set_trace()
 
         return x
-
-
-if __name__ == '__main__':
-    model = ImageZoomxModel()
-    # model = model.encoder
-
-    script_model = torch.jit.script(model)
-
-    print(script_model.code)
-    print("-----------------------------------------------------")
-    print(script_model.graph)
-    print("-----------------------------------------------------")
-    script_model.save("output/image_zoomx.th")
-
-    input_image = torch.randn(1, 3, 256, 256)
-    output_size = torch.Tensor([1024, 1024])
-
-    output_image = script_model(input_image, output_size)
-
-    print("output_image.size: ", output_image.size())
-    print("-----------------------------------------------------")
-
-    torch.onnx.export(script_model, (input_image, output_size), 'output/image_zoomx.onnx',
-        opset_version=11, example_outputs=output_image, verbose=True, enable_onnx_checker=True)

@@ -100,21 +100,40 @@ if __name__ == '__main__':
     transform_onnx_file_name = "{}/image_zoomx_transform.onnx".format(args.output)
 
     dummy_encoder_input = torch.randn(1, 3, 256, 256)
-    dummy_output_size = torch.IntTensor([1024, 1024])
+    # dummy_output_size = torch.IntTensor([1024, 1024])
 
     dummy_transform_feat = torch.randn(1, 576, 96, 128)
-    dummy_transform_grid = torch.randn(1, 1, 65536, 2)
-    dummy_transform_cell = torch.randn(1, 1, 65536, 2)
+    dummy_transform_feat_grid = torch.randn(1, 2, 96, 128)
+    dummy_transform_sub_grid = torch.randn(1, 1, 65536, 2)
+    dummy_transform_sub_cell = torch.randn(1, 1, 65536, 2)
+    # (Pdb) pp feat.size(), s_grid.size(), s_cell.size()
+    # (torch.Size([1, 576, 96, 128]),
+    #  torch.Size([1, 1, 65536, 2]),
+    #  torch.Size([1, 1, 65536, 2]))
+
+
+    def build_script_model():
+        """Building script model."""
+
+        print("Building script model ...")
+        model = get_model(checkpoints)
+        model.eval()
+
+        scripted_model = torch.jit.script(model)
+        print(scripted_model.code)
+        scripted_model.save("{}/image_zoomx.pt".format(args.output))
+        print("Building OK")
+
 
     def export_encoder_onnx():
         """Export onnx model."""
 
         # 1. Create and load model.
-        torch_model = get_model(checkpoints).encoder
-        torch_model.eval()
+        model = get_model(checkpoints).encoder
+        model.eval()
 
         with torch.no_grad():
-            torch_output = torch_model(dummy_encoder_input)
+            torch_output = model(dummy_encoder_input)
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(encoder_onnx_file_name))
@@ -123,7 +142,7 @@ if __name__ == '__main__':
         output_names = ["output"]
         dynamic_axes = {'input': {2: "height", 3: 'width'},
                         'output': {2: "height", 3: 'width'}}
-        torch.onnx.export(torch_model, dummy_encoder_input, encoder_onnx_file_name,
+        torch.onnx.export(model, dummy_encoder_input, encoder_onnx_file_name,
                           input_names=input_names,
                           output_names=output_names,
                           verbose=True,
@@ -133,7 +152,15 @@ if __name__ == '__main__':
                           dynamic_axes=dynamic_axes,
                           example_outputs=torch_output)
 
-        # 3. Visual model
+        # 3. Optimize model
+        print('Checking model {}...'.format(encoder_onnx_file_name))
+        onnx_model = onnx.load(encoder_onnx_file_name)
+        onnx.checker.check_model(onnx_model)
+        print("OK")
+
+        # https://github.com/onnx/optimizer
+
+        # 4. Visual model
         # python -c "import netron; netron.start('output/image_zoomx_encoder.onnx')"
 
 
@@ -141,37 +168,45 @@ if __name__ == '__main__':
         """Export transform onnx model."""
 
         # 1. Create and load model.
-        torch_model = get_model(checkpoints).imnet
-        torch_model.eval()
+        model = get_model(checkpoints).imnet
+        model.eval()
 
         # 2. Model export
         print("Exporting onnx model to {}...".format(transform_onnx_file_name))
 
-        input_names = ["feat", "grid", "cell"]
+        input_names = ["feat", "grid", "sub_grid", "sub_cell"]
         output_names = ["output"]
         dynamic_axes = {'feat': {2: "height", 3: "width"},
-                        'grid': {2: "batch_size"},
-                        'cell': {2: "batch_size"},
+                        'grid': {2: "height", 3: "width"},
+                        # 'sub_grid': {2: "batch_size"},
+                        # 'sub_cell': {2: "batch_size"},
                         'output': {1: "batch_size"}}
-        torch.onnx.export(torch_model, (dummy_transform_feat, dummy_transform_grid, dummy_transform_cell),
-                          transform_onnx_file_name,
-                          input_names=input_names,
-                          output_names=output_names,
-                          verbose=True,
-                          opset_version=11,
-                          keep_initializers_as_inputs=False,
-                          export_params=True,
-                          dynamic_axes=dynamic_axes)
+        torch.onnx.export(model, (dummy_transform_feat, dummy_transform_feat_grid,
+                        dummy_transform_sub_grid, dummy_transform_sub_cell),
+                        transform_onnx_file_name,
+                        input_names=input_names,
+                        output_names=output_names,
+                        verbose=True,
+                        opset_version=11,
+                        keep_initializers_as_inputs=False,
+                        export_params=True,
+                        dynamic_axes=dynamic_axes)
 
-        # 3. Visual model
+        # 3. Optimize model
+        print('Checking model {} ...'.format(transform_onnx_file_name))
+        onnx_model = onnx.load(transform_onnx_file_name)
+        onnx.checker.check_model(onnx_model)
+        print("OK")
+        # https://github.com/onnx/optimizer
+
+        # 4. Visual model
         # python -c "import netron; netron.start('output/image_zoomx_transform.onnx')"
-
 
     def verify_encoder_onnx():
         """Verify encoder onnx model."""
 
-        torch_model = get_model(checkpoints).encoder
-        torch_model.eval()
+        model = get_model(checkpoints).encoder
+        model.eval()
 
         onnxruntime_engine = onnx_load(encoder_onnx_file_name)
 
@@ -179,7 +214,7 @@ if __name__ == '__main__':
             return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
         with torch.no_grad():
-            torch_output = torch_model(dummy_encoder_input)
+            torch_output = model(dummy_encoder_input)
 
         onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_encoder_input)}
         onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
@@ -191,8 +226,8 @@ if __name__ == '__main__':
     def verify_transform_onnx():
         """Verify transform onnx model."""
 
-        torch_model = get_model(checkpoints).imnet
-        torch_model.eval()
+        model = get_model(checkpoints).imnet
+        model.eval()
 
         onnxruntime_engine = onnx_load(transform_onnx_file_name)
 
@@ -200,7 +235,7 @@ if __name__ == '__main__':
             return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
         with torch.no_grad():
-            torch_output = torch_model(dummy_transform_feat, dummy_transform_grid, dummy_transform_cell)
+            torch_output = model(dummy_transform_feat, dummy_transform_sub_grid, dummy_transform_sub_cell)
 
         onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_encoder_feat),
             onnxruntime_engine.get_inputs()[1].name: to_numpy(dummy_encoder_grid),
@@ -220,6 +255,7 @@ if __name__ == '__main__':
     #
 
     if args.export:
+        build_script_model()
         export_encoder_onnx()
         export_transform_onnx()
 
@@ -227,5 +263,6 @@ if __name__ == '__main__':
         verify_encoder_onnx()
 
         # For onnx does not support grid_sampler, please verify it in onnxruntime service
-        print("Transform does not been tested here for onnx not support grid_sampler at now")
+        print("Transform does not been tested here for onnx not support grid_sampler so far !")
         # verify_transform_onnx()
+

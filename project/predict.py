@@ -24,17 +24,19 @@ if __name__ == "__main__":
     """Predict."""
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--checkpoint', type=str, default="models/ImageZoomx.pth", help="checkpint file")
     parser.add_argument('input', type=str, help="input image files (eg: images/small.png)")
+    parser.add_argument('--checkpoint', type=str, default="models/ImageZoomx.pth", help="checkpint file")
+    parser.add_argument('-o', '--output', type=str, default="output", help="output folder")
 
     args = parser.parse_args()
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
 
     model_setenv()
     model = get_model(args.checkpoint)
     device = model_device()
     model = model.to(device)
     model.eval()
-    model = torch.jit.script(model)
 
     totensor = transforms.ToTensor()
     toimage = transforms.ToPILImage()
