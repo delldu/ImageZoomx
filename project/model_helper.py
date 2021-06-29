@@ -41,7 +41,7 @@ def make_grid(H:int, W:int):
     grid_h = torch.arange(-1.0, 1.0, 2.0/H) + 1.0/H
     grid_w = torch.arange(-1.0, 1.0, 2.0/W) + 1.0/W
 
-    grid = torch.stack(torch.meshgrid(grid_h, grid_w), dim=-1).unsqueeze(0)
+    grid = torch.stack(torch.meshgrid(grid_h, grid_w), dim=2).unsqueeze(0)
     # grid.size() -- torch.Size([1, H, W, 2])
 
     return grid
@@ -62,6 +62,11 @@ class ImageZoomxModel(nn.Module):
         in_dim += 2 # attach cell
         out_dim = 3
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
+        # self.encoder = torch.jit.trace(self.encoder, torch.randn(1, 3, 256, 256))
+        # self.imnet = torch.jit.trace(self.imnet, (torch.randn(1, 576, 96, 128), 
+        #     torch.randn(1, 2, 96, 128),
+        #     torch.randn(1, 1, 65536, 2),
+        #     torch.randn(1, 1, 65536, 2)))
 
     def forward(self, x, output_size):
         '''
@@ -81,26 +86,29 @@ class ImageZoomxModel(nn.Module):
         cell = torch.stack((cell[:, :, :, 0] * 2.0/output_height,
                             cell[:, :, :, 1] * 2.0/output_width), dim=3)
 
-        n = int(output_height * output_width)
+        n: int = int(output_height * output_width)
 
         grid = grid.view(1, n, 2)
         # grid format from [1, h, w, 2] ==> [1, h * w, 2]
         cell = cell.view(1, n, 2)
         # cell format from [1, h, w, 2] ==> [1, h * w, 2]
 
-        bs = 256 * 256
+        bs: int = 256 * 256
         feat = self.encoder(x)
 
-        H, W = int(feat.shape[2]), int(feat.shape[3])
+        # H, W = int(feat.shape[2]), int(feat.shape[3])
+        H = feat.size(2)
+        W = feat.size(3)
+
         feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
         feat_grid = feat_grid.to(feat.device)
         # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
         preds: List[torch.Tensor] = []
-        start = 0
+        start: int = 0
         while start < n:
             # stop = min(start + bs, n)
-            stop = start + bs
+            stop: int = start + bs
             if stop > n:
                 stop = n
 
@@ -153,7 +161,7 @@ class MLP(nn.Module):
 
     def simple_forward(self, x):
         # x.size() -- torch.Size([bs, 580])
-        bs = x.shape[0]
+        bs = x.size(0)
         x = self.layers(x)
         return x.view(bs, -1)
 
@@ -168,9 +176,15 @@ class MLP(nn.Module):
 
         # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, bs, 2]), torch.Size([1, bs, 2]))
-        batch, chan = s_grid.shape[:2]
+        # batch, chan = s_grid.shape[:2]
+        batch = s_grid.size(0)
+        chan = s_grid.size(1)
 
-        B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
+        # B, C, H, W = feat.shape[0], feat.shape[1], feat.shape[2], feat.shape[3]
+        B = feat.size(0)
+        C = feat.size(1)
+        H = feat.size(2)
+        W = feat.size(3)
         # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
 
         eps_shift = 1e-6
@@ -238,15 +252,20 @@ class MLP(nn.Module):
                 areas.append(area)
 
         total_area = torch.stack(areas).sum(dim=0)
+        # t = areas[0], areas[0] = areas[3], areas[3] = t
+        # t = areas[1], areas[1] = areas[2], areas[2] = t
 
-        t = areas[0]; areas[0] = areas[3]; areas[3] = t
-        t = areas[1]; areas[1] = areas[2]; areas[2] = t
+        t_areas: List[Tensor] = []
+        t_areas.append(areas[3])
+        t_areas.append(areas[2])
+        t_areas.append(areas[1])
+        t_areas.append(areas[0])
 
         ret = torch.zeros_like(preds[0])
         # for pred, area in zip(preds, areas):
         #     ret = ret + pred * (area / total_area).unsqueeze(-1)
         for i in range(4):
-            ret = ret + preds[i] * (areas[i] / total_area).unsqueeze(-1)
+            ret = ret + preds[i] * (t_areas[i] / total_area).unsqueeze(-1)
 
         # ret.size() -- torch.Size([1, bs, 3])
         return ret
@@ -331,8 +350,12 @@ class EDSR(nn.Module):
 
     def forward(self, x):
         x = self.simple_forward(x)
-        B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
-        x = F.unfold(x, 3, padding=1).view(B, C * 9, H, W)
-        # pdb.set_trace()
+        # B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
+        B = x.size(0)
+        C = x.size(1)
+        H = x.size(2)
+        W = x.size(3)
 
-        return x
+        x = F.unfold(x, 3, dilation=1, padding=1, stride=1)
+
+        return x.view(B, C * 9, H, W)

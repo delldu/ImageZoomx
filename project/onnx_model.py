@@ -254,8 +254,9 @@ if __name__ == '__main__':
     # ************************************************************************************/
     #
 
+    build_script_model()
+
     if args.export:
-        build_script_model()
         export_encoder_onnx()
         export_transform_onnx()
 
