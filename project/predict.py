@@ -51,6 +51,6 @@ if __name__ == "__main__":
         input_tensor = totensor(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            output_tensor = model(input_tensor, torch.IntTensor([1024, 1024])).squeeze(0)
+            output_tensor = model(input_tensor, torch.Tensor([1024, 1024])).squeeze(0)
 
         toimage(output_tensor.cpu()).show()

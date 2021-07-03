@@ -46,6 +46,17 @@ def get_model(checkpoint):
 
     model = ImageZoomxModel()
     model_load(model, checkpoint)
+    
+    # Torch jit trace ...
+    # print("Building script ...")
+    # # example = torch.randn(1, 3, 512, 512)
+    # # model.encoder = torch.jit.trace(model.encoder, example)
+
+    # example = (torch.randn(1, 576, 512, 512), torch.randn(1, 2, 512, 512),
+    #     torch.randn(1, 1, 65536, 2), torch.randn(1, 1, 65536, 2))
+
+    # model.imnet = torch.jit.trace(model.imnet, example)
+    # print("Building OK")
 
     return model
 
