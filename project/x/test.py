@@ -5,6 +5,7 @@ import tvm
 from tvm import relay
 import tvm.testing
 from typing import List
+import torch.nn.functional as F
 
 import pdb
 
@@ -58,16 +59,19 @@ def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=["
 
         # Verify the accuracy
         # isinstance(pt_result, tuple) -- False
-        if isinstance(pt_result, tuple):
-            # handle multiple outputs
-            for i in range(len(pt_result)):
-                tvm_res = vm_res[i].numpy()
-                tvm.testing.assert_allclose(tvm_res, pt_result[i].numpy(), rtol=1e-5, atol=1e-5)
-        elif not isinstance(pt_result, torch.Tensor): # isinstance(pt_result, torch.Tensor) -- True
-            tvm_res = vm_res.numpy().item()
-            assert pt_result == tvm_res
-        else:
-            tvm.testing.assert_allclose(vm_res.numpy(), pt_result.numpy(), rtol=1e-5, atol=1e-5)
+        print("pt_result:", pt_result)
+        print("tvm_result:", vm_res)
+
+        # if isinstance(pt_result, tuple):
+        #     # handle multiple outputs
+        #     for i in range(len(pt_result)):
+        #         tvm_res = vm_res[i].numpy()
+        #         tvm.testing.assert_allclose(tvm_res, pt_result[i].numpy(), rtol=1e-5, atol=1e-5)
+        # elif not isinstance(pt_result, torch.Tensor): # isinstance(pt_result, torch.Tensor) -- True
+        #     tvm_res = vm_res.numpy().item()
+        #     assert pt_result == tvm_res
+        # else:
+        #     tvm.testing.assert_allclose(vm_res.numpy(), pt_result.numpy(), rtol=1e-5, atol=1e-5)
         
         print("Running OK")
 
@@ -114,7 +118,7 @@ def test_flip():
 
     verify_model_with_vm(script_model, input_shapes=[input_shapes])
 
-
+# Reference function test_stack_dynamic in tests/python/frontend/pytorch/test_forward.py 
 class TorchList(nn.Module):
     def __init__(self):
         super(TorchList, self).__init__()
@@ -141,6 +145,93 @@ def test_list():
     verify_model_with_vm(script_model, input_shapes=[(2, 3)])
 
 
+class GridSampler(nn.Module):
+    def __init__(self, oh, ow):
+        super(GridSampler, self).__init__()
+        # output size
+        self.oh = oh
+        self.ow = ow
+
+        # normalize to [-1, 1]
+        h = torch.arange(0, oh) / (oh-1) * 2 - 1
+        w = torch.arange(0, ow) / (ow-1) * 2 - 1
+        grid = torch.zeros(oh, ow, 2)
+        grid[:, :, 0] = w.unsqueeze(0).repeat(oh, 1)
+        grid[:, :, 1] = h.unsqueeze(0).repeat(ow, 1).transpose(0, 1)
+        self.grid = grid.unsqueeze(0)
+
+
+    def forward(self, input):
+        batch = int(input.size(0))
+        grid = self.grid.repeat(batch, 1, 1, 1)
+
+        # # grid_sample default: mode='bilinear', padding_mode='zeros', align_corners=False
+        # # missing ['aten::warn', 'prim::unchecked_cast', 'aten::__is__']
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
+        # return F.grid_sample(input, grid)
+
+
+def test_grid_sampler():
+    torch.set_grad_enabled(False)
+
+    model = GridSampler(16, 32)
+    x = torch.randn(2, 3, 32, 32)
+    print(model(x))
+
+    input_shapes = [(2, 3, 32, 32)]
+    script_model = torch.jit.script(model)
+    print(script_model.graph)
+
+    verify_model_with_vm(script_model, input_shapes=[(2, 3, 32, 32)])
+
+
+
+class UnfoldModel(nn.Module):
+    def __init__(self):
+        super(UnfoldModel, self).__init__()
+
+    def forward(self, input):
+        return F.unfold(input, 3, dilation=1, padding=1, stride=1)
+
+
+def test_unfold():
+    torch.set_grad_enabled(False)
+
+    model = UnfoldModel()
+    x = torch.randn(2, 3, 32, 32)
+    print(model(x))
+
+    input_shapes = [(2, 3, 32, 32)]
+    script_model = torch.jit.script(model)
+    print(script_model.graph)
+
+    verify_model_with_vm(script_model, input_shapes=[(2, 3, 32, 32)])
+
+
 # test_meshgrid()
-test_list()
+# test_list()
 # test_flip()
+# test_grid_sampler()
+
+test_unfold()
+
+
+
+# How to support prim::prim::Uninitialized for frontend ?
+
+# **1. Code patches from pytorch/nn/function.py**
+# ```
+# def unfold(input, kernel_size, dilation=1, padding=0, stride=1):
+#     ...
+#     if input.dim() == 4:
+#         msg = '{} must be int or 2-tuple for 4D input'
+#         assert_int_or_pair(kernel_size, 'kernel_size', msg)
+#         assert_int_or_pair(dilation, 'dilation', msg)
+#         assert_int_or_pair(padding, 'padding', msg)
+#         assert_int_or_pair(stride, 'stride', msg)
+#         return torch._C._nn.im2col(input, _pair(kernel_size), _pair(dilation), _pair(padding), _pair(stride))
+#     else:
+#         raise NotImplementedError("Input Error: Only 4D input Tensors are supported (got {}D)".format(input.dim()))
+# ```
+# 2. Root cause
+#     Convert model with relay.frontend.from_pytorch will generate "prim::Uninitialized", obviously, the above code will break expr.If condition, but " raise NotImplementedError" is population in python language. 
