@@ -66,7 +66,6 @@ class ImageZoomxModel(nn.Module):
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
 
     def forward(self, x, output_size):
-        output_size = output_size.view(2)
         output_h = int(output_size[0])
         output_w = int(output_size[1])
 
@@ -80,7 +79,7 @@ class ImageZoomxModel(nn.Module):
         cell = torch.stack((cell[:, :, :, 0] * 2.0/output_h,
                             cell[:, :, :, 1] * 2.0/output_w), dim=3)
 
-        n: int = int(output_h * output_w)
+        n: int = output_h * output_w
 
         grid = grid.view(1, n, 2)
         # grid format from [1, h, w, 2] ==> [1, h * w, 2]
@@ -105,9 +104,14 @@ class ImageZoomxModel(nn.Module):
             stop: int = start + bs
             if stop > n:
                 stop = n
+            else:
+                stop = start + bs # Just for keep TVM if condition express ...
 
-            s_grid = grid[:, start: stop, :].unsqueeze(0)
-            s_cell = cell[:, start: stop, :].unsqueeze(0)
+            s_grid = grid[0:1, start: stop, 0:2]
+            s_grid = s_grid.unsqueeze(0)             # DO NOT use in-place for TVM
+
+            s_cell = cell[0:1, start: stop, 0:2]
+            s_cell = s_cell.unsqueeze(0)            # DO NOT use in-place for TVM
             # (Pdb) pp feat.size(), s_grid.size(), s_cell.size()
             # (torch.Size([1, 576, 96, 128]),
             #  torch.Size([1, 1, 65536, 2]),
@@ -185,8 +189,8 @@ class MLP(nn.Module):
         # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
 
         eps_shift = 1e-6
-        delta_h = 1 / H
-        delta_w = 1 / W
+        delta_h = 1.0 / H
+        delta_w = 1.0 / W
         q_cell = s_cell.clone()
         # in-place not correct for torch script
         # q_cell[:, :, 0] *= H
@@ -199,8 +203,8 @@ class MLP(nn.Module):
 
         preds: List[torch.Tensor] = []
         areas: List[torch.Tensor] = []
-        for r in [-1, 1]:
-            for c in [-1, 1]:
+        for r in [-1.0, 1.0]:
+            for c in [-1.0, 1.0]:
                 fine_grid = s_grid.clone()
 
                 # in-place not correct for torch script
@@ -215,12 +219,15 @@ class MLP(nn.Module):
                 # (Pdb) fine_grid.size()
                 # torch.Size([1, 1, bs, 2])
 
-                q_feat = F.grid_sample(feat, fine_grid, mode='nearest', 
-                    align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                # q_feat = F.grid_sample(feat, fine_grid, mode='nearest', 
+                #     align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                q_feat = torch.grid_sampler(feat, fine_grid, 1, 0, False)[:, :, 0, :].permute(0, 2, 1)
+
                 # (Pdb) q_feat.size() -- torch.Size([1, bs, 576])
 
-                q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', 
-                    align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                # q_grid = F.grid_sample(feat_grid, fine_grid, mode='nearest', 
+                #     align_corners=False)[:, :, 0, :].permute(0, 2, 1)
+                q_grid = torch.grid_sampler(feat_grid, fine_grid, 1, 0, False)[:, :, 0, :].permute(0, 2, 1)
                 # (Pdb) q_grid.size() -- torch.Size([1, bs, 2])
 
                 q_grid = s_grid - q_grid
@@ -353,7 +360,8 @@ class EDSR(nn.Module):
         H = x.size(2)
         W = x.size(3)
 
-        x = F.unfold(x, 3, dilation=1, padding=1, stride=1)
+        # x = F.unfold(x, 3, dilation=1, padding=1, stride=1)
+        x = torch._C._nn.im2col(x, (3,3), (1, 1), (1, 1), (1, 1))
         # x.view(B, C * 9, H, W) -- torch.Size([1, 576, 512, 512])
 
         return x.view(B, C * 9, H, W)

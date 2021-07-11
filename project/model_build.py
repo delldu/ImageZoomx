@@ -17,6 +17,7 @@ from tvm import relay
 import tvm.testing
 from model import get_model, model_device, model_setenv
 
+import pdb
 
 checkpoints = "models/ImageZoomx.pth"
 
@@ -38,11 +39,12 @@ model.imnet = torch.jit.trace(model.imnet, (trans_feat, trans_feat_grid, trans_s
 script_model = torch.jit.script(model)
 
 # script_model = torch.jit.trace(model, (model_input, torch.Tensor([1024.0, 1024.0])))
-
+graph = script_model.graph
+print(graph)
 
 input_shapes = [
     ('input', ([1, 3, input_height, input_width], 'float32')),
-    ('output_size', ([2], 'float32'))
+    # ('output_size', ([2], 'float32'))
 ]
 encoder_input_shapes = [
     ('input', ([1, 3, input_height, input_width], 'float32'))

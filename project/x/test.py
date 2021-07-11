@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 import pdb
 
-def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=["llvm"]):
+def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=['llvm', 'cuda', 'llvm -device=arm_cpu']):
     print("Verify model {} with vm ...".format(script_model))
 
     # input_shapes = [(1, 3, 224, 224)]
@@ -34,6 +34,8 @@ def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=["
     # targets -- ['cuda', 'llvm -device=arm_cpu', 'llvm']
     for tgt in targets:
         print("Running {} on target ... ".format(script_model.original_name), tgt)
+        print("input_data:", input_data)
+
         dev = tvm.device(tgt, 0)
 
         executor = relay.create_executor("vm", mod=mod, device=dev, target=tgt)
@@ -62,16 +64,16 @@ def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=["
         print("pt_result:", pt_result)
         print("tvm_result:", vm_res)
 
-        # if isinstance(pt_result, tuple):
-        #     # handle multiple outputs
-        #     for i in range(len(pt_result)):
-        #         tvm_res = vm_res[i].numpy()
-        #         tvm.testing.assert_allclose(tvm_res, pt_result[i].numpy(), rtol=1e-5, atol=1e-5)
-        # elif not isinstance(pt_result, torch.Tensor): # isinstance(pt_result, torch.Tensor) -- True
-        #     tvm_res = vm_res.numpy().item()
-        #     assert pt_result == tvm_res
-        # else:
-        #     tvm.testing.assert_allclose(vm_res.numpy(), pt_result.numpy(), rtol=1e-5, atol=1e-5)
+        if isinstance(pt_result, tuple):
+            # handle multiple outputs
+            for i in range(len(pt_result)):
+                tvm_res = vm_res[i].numpy()
+                tvm.testing.assert_allclose(tvm_res, pt_result[i].numpy(), rtol=1e-5, atol=1e-5)
+        elif not isinstance(pt_result, torch.Tensor): # isinstance(pt_result, torch.Tensor) -- True
+            tvm_res = vm_res.numpy().item()
+            assert pt_result == tvm_res
+        else:
+            tvm.testing.assert_allclose(vm_res.numpy(), pt_result.numpy(), rtol=1e-5, atol=1e-5)
         
         print("Running OK")
 
@@ -146,29 +148,26 @@ def test_list():
 
 
 class GridSampler(nn.Module):
-    def __init__(self, oh, ow):
+    def __init__(self, output_h, output_w):
         super(GridSampler, self).__init__()
-        # output size
-        self.oh = oh
-        self.ow = ow
+        self.output_h = output_h
+        self.output_w = output_w
 
         # normalize to [-1, 1]
-        h = torch.arange(0, oh) / (oh-1) * 2 - 1
-        w = torch.arange(0, ow) / (ow-1) * 2 - 1
-        grid = torch.zeros(oh, ow, 2)
-        grid[:, :, 0] = w.unsqueeze(0).repeat(oh, 1)
-        grid[:, :, 1] = h.unsqueeze(0).repeat(ow, 1).transpose(0, 1)
+        h = torch.arange(0, output_h) / (output_h-1) * 2 - 1
+        w = torch.arange(0, output_w) / (output_w-1) * 2 - 1
+        grid = torch.zeros(output_h, output_w, 2)
+        grid[:, :, 0] = w.unsqueeze(0).repeat(output_h, 1)
+        grid[:, :, 1] = h.unsqueeze(0).repeat(output_w, 1).transpose(0, 1)
         self.grid = grid.unsqueeze(0)
-
 
     def forward(self, input):
         batch = int(input.size(0))
         grid = self.grid.repeat(batch, 1, 1, 1)
 
-        # # grid_sample default: mode='bilinear', padding_mode='zeros', align_corners=False
-        # # missing ['aten::warn', 'prim::unchecked_cast', 'aten::__is__']
+        # Torch grid_sample default: mode='bilinear', padding_mode='zeros', align_corners=False
+        # tvm seems align corners as True
         return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
-        # return F.grid_sample(input, grid)
 
 
 def test_grid_sampler():
@@ -198,20 +197,20 @@ def test_unfold():
     torch.set_grad_enabled(False)
 
     model = UnfoldModel()
-    x = torch.randn(2, 3, 32, 32)
+    x = torch.randn(2, 3, 16, 16)
     print(model(x))
 
-    input_shapes = [(2, 3, 32, 32)]
+    input_shapes = [(2, 3, 16, 16)]
     script_model = torch.jit.script(model)
     print(script_model.graph)
 
-    verify_model_with_vm(script_model, input_shapes=[(2, 3, 32, 32)])
+    verify_model_with_vm(script_model, input_shapes=[(2, 3, 16, 16)])
 
 
-# test_meshgrid()
-# test_list()
-# test_flip()
-# test_grid_sampler()
+test_meshgrid()
+test_list()
+test_flip()
+test_grid_sampler()
 
 test_unfold()
 
