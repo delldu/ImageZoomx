@@ -1,4 +1,4 @@
-"""Model Build."""# coding=utf-8
+"""Model Build."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -32,35 +32,43 @@ trans_feat_grid = torch.randn(1, 2, input_height, input_width)
 trans_sub_grid = torch.randn(1, 1, 65536, 2)
 trans_sub_cell = torch.randn(1, 1, 65536, 2)
 
+input_shapes = [
+    ("input", ([1, 3, input_height, input_width], "float32")),
+    ("output_size", ([2], "float32")),
+]
+encoder_input_shapes = [("input", ([1, 3, input_height, input_width], "float32"))]
+
+trans_input_shapes = [
+    ("feat", ([1, 576, input_height, input_width], "float32")),
+    ("feat_grid", ([1, 2, input_height, input_width], "float32")),
+    ("sub_grid", ([1, 1, 65536, 2], "float32")),
+    ("sub_cell", ([1, 1, 65536, 2], "float32")),
+]
+
+
 
 model = get_model(checkpoints)
-model.encoder = torch.jit.trace(model.encoder, model_input)
-model.imnet = torch.jit.trace(model.imnet, (trans_feat, trans_feat_grid, trans_sub_grid, trans_sub_cell), check_trace=False)
+# script_model = torch.jit.script(model.encoder)
+# print("1. model.encoder.script code---------------------")
+# print(script_model.code)
+# mod, params = relay.frontend.from_pytorch(script_model, encoder_input_shapes)
+# pdb.set_trace()
+
+script_model = torch.jit.script(model.imnet)
+print(script_model.graph)
+print("2. model.imnet.script code---------------------")
+print(script_model.code)
+pdb.set_trace()
+mod, params = relay.frontend.from_pytorch(script_model, trans_input_shapes)
+pdb.set_trace()
+
+# model.encoder = torch.jit.trace(model.encoder, model_input)
+# model.imnet = torch.jit.trace(model.imnet, (trans_feat, trans_feat_grid, trans_sub_grid, trans_sub_cell), check_trace=False)
 script_model = torch.jit.script(model)
-
 # script_model = torch.jit.trace(model, (model_input, torch.Tensor([1024.0, 1024.0])))
-graph = script_model.graph
-print(graph)
-
-input_shapes = [
-    ('input', ([1, 3, input_height, input_width], 'float32')),
-    # ('output_size', ([2], 'float32'))
-]
-encoder_input_shapes = [
-    ('input', ([1, 3, input_height, input_width], 'float32'))
-]
-
-trans_shapes = [
-    ('feat', ([1, 576, input_height, input_width], 'float32')),
-    ('feat_grid', ([1, 2, input_height, input_width], 'float32')),
-    ('sub_grid', ([1, 1, 65536, 2], 'float32')),
-    ('sub_cell', ([1, 1, 65536, 2], 'float32'))
-]
-
-
-
+print("3. model code ---------------------")
+print(script_model.code)
 mod, params = relay.frontend.from_pytorch(script_model, input_shapes)
 
 #  ['aten::append', 'aten::grid_sampler', 'aten::flip', 'aten::im2col']
 pdb.set_trace()
-

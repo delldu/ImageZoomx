@@ -4,7 +4,7 @@ import torch.nn as nn
 import tvm
 from tvm import relay
 import tvm.testing
-from typing import List
+from typing import List, Tuple
 import torch.nn.functional as F
 
 import pdb
@@ -207,13 +207,83 @@ def test_unfold():
     verify_model_with_vm(script_model, input_shapes=[(2, 3, 16, 16)])
 
 
-test_meshgrid()
-test_list()
-test_flip()
-test_grid_sampler()
+def convert_i(i: int) -> float:
+    return float(i)
 
-test_unfold()
+class FloatModel(nn.Module):
+    def __init__(self):
+        super(FloatModel, self).__init__()
 
+    def forward(self, x):
+        f = convert_i(10)
+        return f * x
+
+def test_convert():
+    torch.set_grad_enabled(False)
+
+    model = FloatModel()
+    x = torch.randn(2, 3, 16, 16)
+    print(model(x))
+
+    input_shapes = [(2, 3, 16, 16)]
+    script_model = torch.jit.script(model)
+    print(script_model.graph)
+
+    verify_model_with_vm(script_model, input_shapes=[(2, 3, 16, 16)])
+
+
+class WhileModel(nn.Module):
+    def __init__(self):
+        super(WhileModel, self).__init__()
+
+    def forward(self, x):
+        # B, C, H, W = x.size(0), x.size(1), x.size(2), x.size(3)
+        B, C, H, W = x.size()
+        # for r in [-1.0, 1.0]:
+        #     for c in [-1.0, 1.0]:
+        #         x += r * 10.0
+        #         c += c * 1000.0
+        for r in range(2):
+            for c in range(2):
+                r1 = r * 2.0 - 1.0
+                c1 = c * 2.0 - 1.0
+
+                x += r1 + c1
+
+        return x
+
+def test_while():
+    torch.set_grad_enabled(False)
+
+    model = WhileModel()
+    x = torch.randn(2, 3, 16, 16)
+    print(model(x))
+
+    input_shapes = [(2, 3, 16, 16)]
+    script_model = torch.jit.script(model)
+    print(script_model.graph)
+
+    print(script_model.code)
+
+    verify_model_with_vm(script_model, input_shapes=[(2, 3, 16, 16)])
+
+
+# import tvm
+# from tvm import relay
+# relay.cast(100, 'float32')
+
+
+
+# test_meshgrid()
+# test_list()
+# test_flip()
+# test_grid_sampler()
+
+# test_unfold()
+
+# test_convert()
+
+test_while()
 
 
 # How to support prim::prim::Uninitialized for frontend ?
