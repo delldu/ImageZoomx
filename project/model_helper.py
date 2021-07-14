@@ -81,14 +81,8 @@ class ImageZoomxModel(nn.Module):
         self.imnet = MLP(in_dim, out_dim, [256, 256, 256, 256])
 
     def forward(self, x, output_size):
-        # output_size[0] = 1024.0
-        # output_size[1] = 1024.0
-
-        # output_h = int(output_size[0])
-        # output_w = int(output_size[1])
-
-        output_h = 1024
-        output_w = 1024
+        output_h = int(output_size[0])
+        output_w = int(output_size[1])
 
         grid = make_grid(output_h, output_w)
         grid = grid.to(x.device)
@@ -245,8 +239,8 @@ class MLP(nn.Module):
                 # fine_grid = torch.stack((fine_grid[:, :, 0], fine_grid[:, :, 1]), dim=2)
                 fine_grid = torch.stack(
                     (
-                        fine_grid[:, :, 0] + (2.0 * r - 1.0) * delta_h, # [-1.0, 1.0]
-                        fine_grid[:, :, 1] + (2.0 * c - 1.0) * delta_w, # [-1.0, 1.0]
+                        fine_grid[:, :, 0] + (2.0 * r - 1.0) * delta_h,  # [-1.0, 1.0]
+                        fine_grid[:, :, 1] + (2.0 * c - 1.0) * delta_w,  # [-1.0, 1.0]
                     ),
                     dim=2,
                 )

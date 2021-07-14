@@ -21,9 +21,16 @@ from model import get_model, model_device, valid_epoch
 if __name__ == "__main__":
     """Test model."""
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--checkpoint', type=str, default="models/ImageZoomx.pth", help="checkpoint file")
-    parser.add_argument('--bs', type=int, default=2, help="batch size")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="models/ImageZoomx.pth",
+        help="checkpoint file",
+    )
+    parser.add_argument("--bs", type=int, default=2, help="batch size")
     args = parser.parse_args()
 
     # get model
@@ -33,4 +40,4 @@ if __name__ == "__main__":
 
     print("Start testing ...")
     test_dl = get_data(trainning=False, bs=args.bs)
-    valid_epoch(test_dl, model, device, tag='test')
+    valid_epoch(test_dl, model, device, tag="test")

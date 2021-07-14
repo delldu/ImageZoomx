@@ -47,12 +47,14 @@ trans_input_shapes = [
 
 model = get_model(checkpoints)
 
+
 def build_encoder_script_model():
     script_model = torch.jit.script(model.encoder)
     print(script_model.graph)
     print("model.encoder.script code---------------------")
     print(script_model.code)
     mod, params = relay.frontend.from_pytorch(script_model, encoder_input_shapes)
+
 
 def build_encoder_traced_model():
     traced_model = torch.jit.trace(model.encoder, model_input)
@@ -63,6 +65,7 @@ def build_encoder_traced_model():
     print("Building encoder model OK ...")
     pdb.set_trace()
 
+
 def build_transform_script_model():
     script_model = torch.jit.script(model.imnet)
     print(script_model.graph)
@@ -71,14 +74,18 @@ def build_transform_script_model():
     mod, params = relay.frontend.from_pytorch(script_model, trans_input_shapes)
     pdb.set_trace()
 
+
 def build_transform_traced_model():
-    traced_model = torch.jit.trace(model.imnet, (trans_feat, trans_feat_grid, trans_sub_grid, trans_sub_cell))
+    traced_model = torch.jit.trace(
+        model.imnet, (trans_feat, trans_feat_grid, trans_sub_grid, trans_sub_cell)
+    )
     print(traced_model.graph)
     print("model.imnet.traced code---------------------")
     print(traced_model.code)
     mod, params = relay.frontend.from_pytorch(traced_model, trans_input_shapes)
     print("Building transform model OK ...")
     pdb.set_trace()
+
 
 def build_whole_script_model():
     script_model = torch.jit.script(model)
@@ -88,6 +95,7 @@ def build_whole_script_model():
     mod, params = relay.frontend.from_pytorch(script_model, input_shapes)
     print("Building whole model OK ...")
     pdb.set_trace()
+
 
 def build_whole_traced_model():
     traced_model = torch.jit.trace(model, (model_input, torch.Tensor([1024.0, 1024.0])))
@@ -99,15 +107,18 @@ def build_whole_traced_model():
     # ['aten::append', 'aten::grid_sampler', 'aten::flip', 'aten::im2col']
     pdb.set_trace()
 
+
 def build_traced_model():
     build_encoder_traced_model()
     build_transform_traced_model()
     build_whole_traced_model()
 
+
 def build_script_model():
     build_encoder_script_model()
     build_transform_script_model()
     build_whole_script_model()
+
 
 build_traced_model()
 # build_script_model()

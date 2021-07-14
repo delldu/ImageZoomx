@@ -1,4 +1,4 @@
-"""Data loader."""# coding=utf-8
+"""Data loader."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -31,25 +31,32 @@ VIDEO_SEQUENCE_LENGTH = 5
 
 
 def grid_image(tensor_list, nrow=3):
-    grid = utils.make_grid(
-        torch.cat(tensor_list, dim=0), nrow=nrow)
-    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
-        1, 2, 0).to('cpu', torch.uint8).numpy()
+    grid = utils.make_grid(torch.cat(tensor_list, dim=0), nrow=nrow)
+    ndarr = (
+        grid.mul(255)
+        .add_(0.5)
+        .clamp_(0, 255)
+        .permute(1, 2, 0)
+        .to("cpu", torch.uint8)
+        .numpy()
+    )
     image = Image.fromarray(ndarr)
     return image
 
+
 def multiple_scale(data, multiple=32):
-    '''
+    """
     Scale image to a multiple.
     input data is tensor, with CxHxW format.
-    '''
+    """
     C, H, W = data.shape
-    Hnew = ((H - 1) // multiple + 1)*multiple
-    Wnew = ((W - 1) // multiple + 1)*multiple
+    Hnew = ((H - 1) // multiple + 1) * multiple
+    Wnew = ((W - 1) // multiple + 1) * multiple
     temp = data.new_zeros(C, Hnew, Wnew)
     temp[:, 0:H, 0:W] = data
 
     return temp
+
 
 def get_transform(train=True):
     """Transform images."""
@@ -59,6 +66,7 @@ def get_transform(train=True):
 
     ts.append(T.ToTensor())
     return T.Compose(ts)
+
 
 class Video(data.Dataset):
     """Define Video Frames Class."""
@@ -80,10 +88,10 @@ class Video(data.Dataset):
         """Load images."""
         n = len(self.images)
         filelist = []
-        for k in range(-(self.seqlen//2), (self.seqlen//2) + 1):
-            if (idx + k < 0):
+        for k in range(-(self.seqlen // 2), (self.seqlen // 2) + 1):
+            if idx + k < 0:
                 filename = self.images[0]
-            elif (idx + k >= n):
+            elif idx + k >= n:
                 filename = self.images[n - 1]
             else:
                 filename = self.images[idx + k]
@@ -136,12 +144,15 @@ class ImageZoomxDataset(data.Dataset):
         Return printable representation of the dataset object.
         """
 
-        fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
-        fmt_str += '    Number of samples: {}\n'.format(self.__len__())
-        fmt_str += '    Root Location: {}\n'.format(self.root)
-        tmp = '    Transforms: '
-        fmt_str += '{0}{1}\n'.format(tmp, self.transforms.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+        fmt_str = "Dataset " + self.__class__.__name__ + "\n"
+        fmt_str += "    Number of samples: {}\n".format(self.__len__())
+        fmt_str += "    Root Location: {}\n".format(self.root)
+        tmp = "    Transforms: "
+        fmt_str += "{0}{1}\n".format(
+            tmp, self.transforms.__repr__().replace("\n", "\n" + " " * len(tmp))
+        )
         return fmt_str
+
 
 def train_data(bs):
     """Get data loader for trainning & validating, bs means batch_size."""
@@ -155,7 +166,7 @@ def train_data(bs):
     # ***    MS: Split train_ds in train and valid set with 0.2
     # ***
     # ************************************************************************************/
-    #    
+    #
     valid_len = int(0.2 * len(train_ds))
     indices = [i for i in range(len(train_ds) - valid_len, len(train_ds))]
 
@@ -168,6 +179,7 @@ def train_data(bs):
     valid_dl = data.DataLoader(valid_ds, batch_size=bs, shuffle=False, num_workers=4)
 
     return train_dl, valid_dl
+
 
 def test_data(bs):
     """Get data loader for test, bs means batch_size."""
@@ -183,6 +195,7 @@ def get_data(trainning=True, bs=4):
 
     return train_data(bs) if trainning else test_data(bs)
 
+
 def ImageZoomxDatasetTest():
     """Test dataset ..."""
 
@@ -194,5 +207,6 @@ def ImageZoomxDatasetTest():
     # image = Image.fromarray(ndarr)
     # image.show()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     ImageZoomxDatasetTest()
