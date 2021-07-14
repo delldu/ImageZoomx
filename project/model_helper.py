@@ -54,6 +54,7 @@ def make_grid(H: int, W: int):
 
     return grid
 
+
 class DellReLU(nn.Module):
     def __init__(self):
         """Init model."""
@@ -61,6 +62,7 @@ class DellReLU(nn.Module):
 
     def forward(self, x):
         return torch.relu(x)
+
 
 class ImageZoomxModel(nn.Module):
     """ImageZoomx Model."""
@@ -237,20 +239,17 @@ class MLP(nn.Module):
             for c in range(2):
                 fine_grid = s_grid.clone()
 
-                # # in-place not correct for torch script
-                # # fine_grid[:, :, 0] += r * delta_h
-                # # fine_grid[:, :, 1] += c * delta_w
-                # fine_grid = torch.stack(
-                #     (
-                #         fine_grid[:, :, 0] + (2.0 * r - 1.0) * delta_h, # [-1.0, 1.0]
-                #         fine_grid[:, :, 1] + (2.0 * c - 1.0) * delta_w, # [-1.0, 1.0]
-                #     ),
-                #     dim=2,
-                # )
-
-                fine_grid[:, :, 0] += (2.0 * r - 1.0) * delta_h
-                fine_grid[:, :, 1] += (2.0 * c - 1.0) * delta_w
-                fine_grid = torch.stack((fine_grid[:, :, 0], fine_grid[:, :, 1]), dim=2)
+                # TVM Missing [aten::copy_]
+                # fine_grid[:, :, 0] += (2.0 * r - 1.0) * delta_h
+                # fine_grid[:, :, 1] += (2.0 * c - 1.0) * delta_w
+                # fine_grid = torch.stack((fine_grid[:, :, 0], fine_grid[:, :, 1]), dim=2)
+                fine_grid = torch.stack(
+                    (
+                        fine_grid[:, :, 0] + (2.0 * r - 1.0) * delta_h, # [-1.0, 1.0]
+                        fine_grid[:, :, 1] + (2.0 * c - 1.0) * delta_w, # [-1.0, 1.0]
+                    ),
+                    dim=2,
+                )
 
                 fine_grid = fine_grid.clamp(-1 + eps_shift, 1 - eps_shift)
                 fine_grid = fine_grid.flip(-1).unsqueeze(1)

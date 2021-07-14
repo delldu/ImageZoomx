@@ -268,6 +268,9 @@ def test_while():
     verify_model_with_vm(script_model, input_shapes=[(2, 3, 16, 16)])
 
 
+
+
+
 # import tvm
 # from tvm import relay
 # relay.cast(100, 'float32')
@@ -275,7 +278,7 @@ def test_while():
 
 
 # test_meshgrid()
-# test_list()
+test_list()
 # test_flip()
 # test_grid_sampler()
 
@@ -283,7 +286,7 @@ def test_while():
 
 # test_convert()
 
-test_while()
+# test_while()
 
 
 # How to support prim::prim::Uninitialized for frontend ?
