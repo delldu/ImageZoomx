@@ -118,8 +118,8 @@ if __name__ == "__main__":
     dummy_encoder_input = torch.randn(1, 3, 256, 256)
     dummy_output_size = torch.IntTensor([1024, 1024])
 
-    dummy_transform_feat = torch.randn(1, 576, 96, 128)
-    dummy_transform_feat_grid = torch.randn(1, 2, 96, 128)
+    dummy_transform_feat = torch.randn(1, 576, 256, 256)
+    dummy_transform_feat_grid = torch.randn(1, 2, 256, 256)
     dummy_transform_sub_grid = torch.randn(1, 1, 65536, 2)
     dummy_transform_sub_cell = torch.randn(1, 1, 65536, 2)
     # (Pdb) pp feat.size(), s_grid.size(), s_cell.size()
@@ -386,13 +386,13 @@ if __name__ == "__main__":
     build_script_model()
 
     if args.export:
-        # export_encoder_onnx()
-        # export_transform_onnx()
+        export_encoder_onnx()
+        export_transform_onnx()
         export_onnx()
 
     if args.verify:
-        # verify_encoder_onnx()
-        # verify_transform_onnx()
+        verify_encoder_onnx()
+        verify_transform_onnx()
         # verify_onnx()
         # For onnx does not support grid_sampler, please verify it in onnxruntime service
         print(

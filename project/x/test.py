@@ -9,6 +9,56 @@ import torch.nn.functional as F
 
 import pdb
 
+import onnx
+from torch.onnx.symbolic_helper import parse_args
+from torch.onnx.symbolic_registry import register_op
+
+@parse_args('v', 'v', 'i', 'i', 'i')
+def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners=False):
+    '''
+    torch.nn.functional.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=None)
+    Need convert interpolation_mode, padding_mode ? NO for simpler at now !!!
+    '''
+    return g.op('onnxservice::grid_sampler', input, grid,
+        interpolation_mode_i=interpolation_mode,
+        padding_mode_i=padding_mode,
+        align_corners_i=align_corners)
+
+register_op('grid_sampler', grid_sampler, '', 11)
+
+def export_onnx(model, dummy_input, onnx_file_name):
+    # 1. Model export
+    print("Exporting onnx model to {}...".format(onnx_file_name))
+
+    input_names = ["input"]
+    output_names = ["output"]
+    # dynamic_axes = {
+    #     "input": {2: "height", 3: "width"},
+    #     "output": {2: "height", 3: "width"},
+    # }
+    with torch.no_grad():
+        torch_output = model(dummy_input)
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_file_name,
+        input_names=input_names,
+        output_names=output_names,
+        verbose=True,
+        opset_version=11,
+        keep_initializers_as_inputs=False,
+        export_params=True,
+        example_outputs=torch_output,
+    )
+
+    # 3. Optimize model
+    print("Checking model {}...".format(onnx_file_name))
+    onnx_model = onnx.load(onnx_file_name)
+    onnx.checker.check_model(onnx_model)
+    return onnx_model
+
+
 def verify_model_with_vm(script_model, input_shapes, input_data=None, targets=['llvm', 'cuda', 'llvm -device=arm_cpu']):
     print("Verify model {} with vm ...".format(script_model))
 
@@ -167,8 +217,9 @@ class GridSampler(nn.Module):
 
         # Torch grid_sample default: mode='bilinear', padding_mode='zeros', align_corners=False
         # tvm seems align corners as True
-        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
-
+        # mode: 0 == 'bilinear', else = 1
+        # padding_mode 0 == 'zeros', 1 == 'border', 2 == padding_mode_enum
+        return torch.grid_sampler(input, grid, 0, 0, True)
 
 def test_grid_sampler():
     torch.set_grad_enabled(False)
@@ -182,6 +233,8 @@ def test_grid_sampler():
     print(script_model.graph)
 
     verify_model_with_vm(script_model, input_shapes=[(2, 3, 32, 32)])
+
+    export_onnx(script_model, x, "/tmp/grid_sampler.onnx")
 
 
 
@@ -278,9 +331,9 @@ def test_while():
 
 
 # test_meshgrid()
-test_list()
+# test_list()
 # test_flip()
-# test_grid_sampler()
+test_grid_sampler()
 
 # test_unfold()
 

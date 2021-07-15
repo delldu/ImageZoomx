@@ -84,6 +84,9 @@ class ImageZoomxModel(nn.Module):
         output_h = int(output_size[0])
         output_w = int(output_size[1])
 
+        output_h = 1024
+        output_w = 1024
+
         grid = make_grid(output_h, output_w)
         grid = grid.to(x.device)
 
