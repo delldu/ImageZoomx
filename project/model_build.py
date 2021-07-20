@@ -339,11 +339,11 @@ if __name__ == "__main__":
                 "ar rv {}/lib{}.a {}/devc.o {}/lib0.o {}/lib1.o {}/json.o {}/params.o".format(
                     file_name,
                     libname,
-                    file_name, #devc
+                    file_name,  # devc
                     file_name,
                     file_name,
-                    file_name, # json
-                    file_name, # params
+                    file_name,  # json
+                    file_name,  # params
                 )
             )
 
