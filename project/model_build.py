@@ -89,18 +89,27 @@ if __name__ == "__main__":
     image_height = 256
     image_width = 256
     checkpoints = "models/ImageZoomx.pth"
+    prefix = "cuda" if args.gpu else "cpu"
 
     encoder_input_shape = (1, 3, image_height, image_width)
-    output_encoder_so_filename = "{}/image_zoomx_encoder.so".format(args.output)
-    output_encoder_traced_filename = "{}/image_zoomx_encoder.pt".format(args.output)
+    output_encoder_so_filename = "{}/{}_image_zoomx_encoder.so".format(
+        args.output, prefix
+    )
+    output_encoder_traced_filename = "{}/{}_image_zoomx_encoder.pt".format(
+        args.output, prefix
+    )
 
     # for transform
     feat_input_shape = (1, 576, image_height, image_width)
     grid_input_shape = (1, 2, image_height, image_width)
     sub_grid_input_shape = (1, 1, 65536, 2)
     sub_cell_input_shape = (1, 1, 65536, 2)
-    output_transform_so_filename = "{}/image_zoomx_transform.so".format(args.output)
-    output_transform_traced_filename = "{}/image_zoomx_transform.pt".format(args.output)
+    output_transform_so_filename = "{}/{}_image_zoomx_transform.so".format(
+        args.output, prefix
+    )
+    output_transform_traced_filename = "{}/{}_image_zoomx_transform.pt".format(
+        args.output, prefix
+    )
 
     def build_encoder_model():
         print("Building model on {} ...".format(target))
