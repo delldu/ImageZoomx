@@ -41,7 +41,7 @@ def grid_sampler(g, input, grid, interpolation_mode, padding_mode, align_corners
 register_op("grid_sampler", grid_sampler, "", 11)
 
 
-# @torch.jit.script
+@torch.jit.script
 def make_grid(H: int, W: int):
     """Make standard grid for H, W."""
     H = float(H)
@@ -55,10 +55,10 @@ def make_grid(H: int, W: int):
     return grid
 
 
-class DellReLU(nn.Module):
+class NormalReLU(nn.Module):
     def __init__(self):
         """Init model."""
-        super(DellReLU, self).__init__()
+        super(NormalReLU, self).__init__()
 
     def forward(self, x):
         return torch.relu(x)
@@ -84,8 +84,8 @@ class ImageZoomxModel(nn.Module):
         output_h = int(output_size[0])
         output_w = int(output_size[1])
 
-        output_h = 1024
-        output_w = 1024
+        # output_h = 1024
+        # output_w = 1024
 
         grid = make_grid(output_h, output_w)
         grid = grid.to(x.device)
@@ -121,11 +121,7 @@ class ImageZoomxModel(nn.Module):
         start: int = 0
         while start < n:
             # stop = min(start + bs, n)
-            stop: int = start + bs
-            if stop > n:
-                stop = n
-            else:
-                stop = start + bs  # Just for keep TVM if condition express ...
+            stop: int = start + bs if start + bs < n else n
 
             s_grid = grid[0:1, start:stop, 0:2]
             s_grid = s_grid.unsqueeze(0)  # DO NOT use in-place for TVM
@@ -162,12 +158,11 @@ class MLP(nn.Module):
     def __init__(self, in_dim, out_dim, hidden_list: List[int]):
         # super().__init__()
         super(MLP, self).__init__()
-
         layers: List[nn.Module()] = []
         lastv = in_dim
         for hidden in hidden_list:
             layers.append(nn.Linear(lastv, hidden))
-            layers.append(DellReLU())
+            layers.append(NormalReLU())
             lastv = hidden
         layers.append(nn.Linear(lastv, out_dim))
         self.layers = nn.Sequential(*layers)
@@ -330,7 +325,6 @@ class MeanShift(nn.Conv2d):
         rgb_std=(1.0, 1.0, 1.0),
         sign=-1,
     ):
-
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -347,10 +341,9 @@ class ResBlock(nn.Module):
         kernel_size,
         bias=True,
         bn=False,
-        act=DellReLU(),
+        act=NormalReLU(),
         res_scale=1,
     ):
-
         super(ResBlock, self).__init__()
         m = []
         for i in range(2):
@@ -388,7 +381,7 @@ class EDSR(nn.Module):
 
         # define body module
         m_body = [
-            ResBlock(conv, n_feats, kernel_size, act=DellReLU(), res_scale=1)
+            ResBlock(conv, n_feats, kernel_size, act=NormalReLU(), res_scale=1)
             for i in range(n_resblocks)
         ]
         m_body.append(conv(n_feats, n_feats, kernel_size))

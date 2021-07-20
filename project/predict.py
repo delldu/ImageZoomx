@@ -46,6 +46,8 @@ if __name__ == "__main__":
     model = model.to(device)
     model.eval()
 
+    print(model)
+
     totensor = transforms.ToTensor()
     toimage = transforms.ToPILImage()
 
