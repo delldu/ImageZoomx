@@ -259,7 +259,7 @@ if __name__ == "__main__":
 
         def runcmd(cmdline):
             # print(cmdline)
-            subprocess.Popen(cmdline, shell=True)
+            subprocess.Popen(cmdline, shell=True).wait()
 
         def uncompress(tarfile):
             """
