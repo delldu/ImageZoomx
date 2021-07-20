@@ -15,32 +15,50 @@ import pdb
 
 import numpy as np
 
+import torch
+
 import tvm
 from tvm import relay, runtime, contrib
 
-import onnx
-import onnxruntime
+from model import get_model
 
 
-def onnx_load(onnx_file):
-    session_options = onnxruntime.SessionOptions()
-    # session_options.log_severity_level = 0
+def save_tvm_model(relay_mod, relay_params, target, filename):
+    # Create ouput file names
+    file_name, _ = os.path.splitext(filename)
+    so_filename = file_name + ".so"
+    json_filename = file_name + ".json"
+    params_filename = file_name + ".params"
 
-    # Set graph optimization level
-    session_options.graph_optimization_level = (
-        onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-    )
+    with tvm.transform.PassContext(opt_level=3):
+        graph, lib, params = relay.build(relay_mod, target=target, params=relay_params)
 
-    onnx_model = onnxruntime.InferenceSession(onnx_file, session_options)
-    # onnx_model.set_providers(['CUDAExecutionProvider'])
-    print(
-        "Onnx Model Engine: ",
-        onnx_model.get_providers(),
-        "Device: ",
-        onnxruntime.get_device(),
-    )
+    lib.export_library(so_filename)
 
-    return onnx_model
+    with open(json_filename, "w") as f:
+        f.write(graph)
+
+    with open(params_filename, "wb") as f:
+        f.write(runtime.save_param_dict(params))
+
+    print("Building {} OK".format(file_name))
+
+
+def load_tvm_model(filename, device):
+    # Create input file names
+    file_name, _ = os.path.splitext(filename)
+    so_filename = file_name + ".so"
+    json_filename = file_name + ".json"
+    params_filename = file_name + ".params"
+
+    graph = open(json_filename).read()
+    loaded_solib = runtime.load_module(so_filename)
+    loaded_params = bytearray(open(params_filename, "rb").read())
+
+    mod = contrib.graph_executor.create(graph, loaded_solib, device)
+    mod.load_params(loaded_params)
+
+    return mod
 
 
 if __name__ == "__main__":
@@ -70,93 +88,79 @@ if __name__ == "__main__":
     device = tvm.device(str(target), 0)
     image_height = 256
     image_width = 256
+    checkpoints = "models/ImageZoomx.pth"
+
+    encoder_input_shape = (1, 3, image_height, image_width)
+    output_encoder_so_filename = "{}/image_zoomx_encoder.so".format(args.output)
+    output_encoder_traced_filename = "{}/image_zoomx_encoder.pt".format(args.output)
+
+    # for transform
+    feat_input_shape = (1, 576, image_height, image_width)
+    grid_input_shape = (1, 2, image_height, image_width)
+    sub_grid_input_shape = (1, 1, 65536, 2)
+    sub_cell_input_shape = (1, 1, 65536, 2)
+    output_transform_so_filename = "{}/image_zoomx_transform.so".format(args.output)
+    output_transform_traced_filename = "{}/image_zoomx_transform.pt".format(args.output)
 
     def build_encoder_model():
-        onnx_file = "image_zoomx_encoder.onnx"
-        print("Building {} on {} ...".format(onnx_file, target))
+        print("Building model on {} ...".format(target))
 
-        onnx_model = onnx.load("output/{}".format(onnx_file))
-        onnx_shape_dict = {"input": (1, 3, image_height, image_width)}
+        encoder_input_data = torch.randn(encoder_input_shape)
 
-        devname = "cuda" if args.gpu else "cpu"
-        onnx_so_path = "{}/{}_{}.so".format(args.output, devname, onnx_file)
-        onnx_json_path = "{}/{}_{}.graph".format(args.output, devname, onnx_file)
-        onnx_params_path = "{}/{}_{}.params".format(args.output, devname, onnx_file)
+        model = get_model(checkpoints).encoder
+        model = model.eval()
 
-        mod, params = relay.frontend.from_onnx(
-            onnx_model, shape=onnx_shape_dict, freeze_params=True
+        traced_model = torch.jit.trace(model, encoder_input_data)
+        traced_model.save(output_encoder_traced_filename)
+
+        print(traced_model.graph)
+        mod, params = relay.frontend.from_pytorch(
+            traced_model, [("input", encoder_input_shape)]
         )
-        print(mod)
-
-        with tvm.transform.PassContext(opt_level=3):
-            graph, lib, params = relay.build(mod, target=target, params=params)
-
-        lib.export_library(onnx_so_path)
-
-        with open(onnx_json_path, "w") as json_file:
-            json_file.write(graph)
-
-        with open(onnx_params_path, "wb") as params_file:
-            params_file.write(runtime.save_param_dict(params))
-
-        print("Building {}/{} OK".format(args.output, onnx_model))
+        save_tvm_model(mod, params, target, output_encoder_so_filename)
 
     def build_transform_model():
-        onnx_file = "image_zoomx_transform.onnx"
-        print("Building {} on {} ...".format(onnx_file, target))
+        print("Building model on {} ...".format(target))
 
-        onnx_model = onnx.load("output/{}".format(onnx_file))
-        onnx_shape_dict = {
-            "feat": (1, 576, image_height, image_width),
-            "grid": (1, 2, image_height, image_width),
-            "sub_grid": (1, 1, 65536, 2),
-            "sub_cell": (1, 1, 65536, 2),
-        }
+        feat_input_data = torch.randn(feat_input_shape)
+        grid_input_data = torch.randn(grid_input_shape)
+        sub_grid_input_data = torch.randn(sub_grid_input_shape)
+        sub_cell_input_data = torch.randn(sub_cell_input_shape)
 
-        devname = "cuda" if args.gpu else "cpu"
-        onnx_so_path = "{}/{}_{}.so".format(args.output, devname, onnx_file)
-        onnx_json_path = "{}/{}_{}.graph".format(args.output, devname, onnx_file)
-        onnx_params_path = "{}/{}_{}.params".format(args.output, devname, onnx_file)
+        model = get_model(checkpoints).imnet
+        model = model.eval()
 
-        mod, params = relay.frontend.from_onnx(
-            onnx_model, shape=onnx_shape_dict, freeze_params=True
+        traced_model = torch.jit.trace(
+            model,
+            (
+                feat_input_data,
+                grid_input_data,
+                sub_grid_input_data,
+                sub_cell_input_data,
+            ),
         )
-        print(mod)
+        traced_model.save(output_transform_traced_filename)
 
-        with tvm.transform.PassContext(opt_level=3):
-            graph, lib, params = relay.build(mod, target=target, params=params)
-
-        lib.export_library(onnx_so_path)
-
-        with open(onnx_json_path, "w") as json_file:
-            json_file.write(graph)
-
-        with open(onnx_params_path, "wb") as params_file:
-            params_file.write(runtime.save_param_dict(params))
-
-        print("Building {}/{} OK".format(args.output, onnx_model))
+        print(traced_model.graph)
+        mod, params = relay.frontend.from_pytorch(
+            traced_model,
+            [
+                ("feat", feat_input_shape),
+                ("grid", grid_input_shape),
+                ("sub_grid", sub_grid_input_shape),
+                ("sub_cell", sub_cell_input_shape),
+            ],
+        )
+        save_tvm_model(mod, params, target, output_transform_so_filename)
 
     def verify_encoder_model():
-        onnx_file = "image_zoomx_encoder.onnx"
-        print("Running {}/{} on {} ...".format(args.output, onnx_file, device))
+        print("Running model on {} ...".format(device))
 
-        devname = "cuda" if args.gpu else "cpu"
-        onnx_so_path = "{}/{}_{}.so".format(args.output, devname, onnx_file)
-        onnx_json_path = "{}/{}_{}.graph".format(args.output, devname, onnx_file)
-        onnx_params_path = "{}/{}_{}.params".format(args.output, devname, onnx_file)
-
-        np_data = np.random.uniform(size=(1, 3, image_height, image_width)).astype(
-            "float32"
-        )
-        nd_data = tvm.nd.array(np_data, device)
+        input_data = torch.randn(encoder_input_shape)
+        nd_data = tvm.nd.array(input_data.numpy(), device)
 
         # Load module
-        graph = open(onnx_json_path).read()
-        loaded_solib = runtime.load_module(onnx_so_path)
-        loaded_params = bytearray(open(onnx_params_path, "rb").read())
-
-        mod = contrib.graph_executor.create(graph, loaded_solib, device)
-        mod.load_params(loaded_params)
+        mod = load_tvm_model(output_encoder_so_filename, device)
 
         # TVM Run
         mod.set_input("input", nd_data)
@@ -172,47 +176,33 @@ if __name__ == "__main__":
             % (np.mean(prof_res), np.std(prof_res))
         )
 
-        onnxruntime_engine = onnx_load("{}/{}".format(args.output, onnx_file))
-        onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: np_data}
-        onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+        traced_model = torch.jit.load(output_encoder_traced_filename)
+        traced_model = traced_model.eval()
+        with torch.no_grad():
+            traced_output = traced_model(input_data)
 
         np.testing.assert_allclose(
-            output_data.numpy(), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03
+            output_data.numpy(), traced_output.numpy(), rtol=1e-03, atol=1e-03
         )
-        print("Running {}/{} OK.".format(args.output, onnx_file))
+        print("Running model OK.")
 
     def verify_transform_model():
-        onnx_file = "image_zoomx_transform.onnx"
-        print("Running {}/{} on {} ...".format(args.output, onnx_file, device))
+        print("Running model on {} ...".format(device))
 
-        devname = "cuda" if args.gpu else "cpu"
-        onnx_so_path = "{}/{}_{}.so".format(args.output, devname, onnx_file)
-        onnx_json_path = "{}/{}_{}.graph".format(args.output, devname, onnx_file)
-        onnx_params_path = "{}/{}_{}.params".format(args.output, devname, onnx_file)
+        feat_data = torch.randn(feat_input_shape)
+        nd_feat_data = tvm.nd.array(feat_data.numpy(), device)
 
-        np_feat_data = np.random.uniform(
-            size=(1, 576, image_height, image_width)
-        ).astype("float32")
-        nd_feat_data = tvm.nd.array(np_feat_data, device)
+        grid_data = torch.randn(grid_input_shape)
+        nd_grid_data = tvm.nd.array(grid_data.numpy(), device)
 
-        np_grid_data = np.random.uniform(size=(1, 2, image_height, image_width)).astype(
-            "float32"
-        )
-        nd_grid_data = tvm.nd.array(np_grid_data, device)
+        sub_grid_data = torch.randn(sub_grid_input_shape)
+        nd_sub_grid_data = tvm.nd.array(sub_grid_data.numpy(), device)
 
-        np_sub_grid_data = np.random.uniform(size=(1, 1, 65536, 2)).astype("float32")
-        nd_sub_grid_data = tvm.nd.array(np_sub_grid_data, device)
-
-        np_sub_cell_data = np.random.uniform(size=(1, 1, 65536, 2)).astype("float32")
-        nd_sub_cell_data = tvm.nd.array(np_sub_cell_data, device)
+        sub_cell_data = torch.randn(sub_cell_input_shape)
+        nd_sub_cell_data = tvm.nd.array(sub_cell_data.numpy(), device)
 
         # Load module
-        graph = open(onnx_json_path).read()
-        loaded_solib = runtime.load_module(onnx_so_path)
-        loaded_params = bytearray(open(onnx_params_path, "rb").read())
-
-        mod = contrib.graph_executor.create(graph, loaded_solib, device)
-        mod.load_params(loaded_params)
+        mod = load_tvm_model(output_transform_so_filename, device)
 
         # TVM Run
         mod.set_input("feat", nd_feat_data)
@@ -232,24 +222,22 @@ if __name__ == "__main__":
             % (np.mean(prof_res), np.std(prof_res))
         )
 
-        onnxruntime_engine = onnx_load("{}/{}".format(args.output, onnx_file))
-        onnxruntime_inputs = {
-            onnxruntime_engine.get_inputs()[0].name: np_feat_data,
-            onnxruntime_engine.get_inputs()[1].name: np_grid_data,
-            onnxruntime_engine.get_inputs()[2].name: np_sub_grid_data,
-            onnxruntime_engine.get_inputs()[3].name: np_sub_cell_data,
-        }
-        onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+        traced_model = torch.jit.load(output_transform_traced_filename)
+        traced_model = traced_model.eval()
+        with torch.no_grad():
+            traced_output = traced_model(
+                feat_data, grid_data, sub_grid_data, sub_cell_data
+            )
 
         np.testing.assert_allclose(
-            output_data.numpy(), onnxruntime_outputs[0], rtol=1e-03, atol=1e-03
+            output_data.numpy(), traced_output.numpy(), rtol=1e-03, atol=1e-03
         )
-        print("Running {}/{} OK.".format(args.output, onnx_file))
+        print("Running model OK.")
 
     if args.build:
-        # build_encoder_model()
+        build_encoder_model()
         build_transform_model()
 
     if args.verify:
-        # verify_encoder_model()
+        verify_encoder_model()
         verify_transform_model()
