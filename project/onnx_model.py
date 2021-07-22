@@ -127,6 +127,8 @@ if __name__ == "__main__":
 
         input_names = ["input"]
         output_names = ["output"]
+        dynamic_axes = {'input': {2: "height", 3: 'width'},
+                        'output': {2: "height", 3: 'width'}}
         torch.onnx.export(
             model,
             dummy_encoder_input,
@@ -136,6 +138,7 @@ if __name__ == "__main__":
             verbose=True,
             opset_version=11,
             keep_initializers_as_inputs=False,
+            dynamic_axes=dynamic_axes,
             export_params=True,
         )
 
@@ -159,6 +162,9 @@ if __name__ == "__main__":
 
         input_names = ["feat", "grid", "sub_grid", "sub_cell"]
         output_names = ["output"]
+        dynamic_axes = {'feat': {2: "height", 3: 'width'},
+                        'grid': {2: "height", 3: 'width'},
+                        'output': {2: "height", 3: 'width'}}
         torch.onnx.export(
             model,
             (
@@ -173,6 +179,7 @@ if __name__ == "__main__":
             verbose=True,
             opset_version=11,
             keep_initializers_as_inputs=False,
+            dynamic_axes=dynamic_axes,
             export_params=True,
         )
 
