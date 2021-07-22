@@ -131,15 +131,14 @@ class ImageZoomxModel(nn.Module):
             #  s_grid.size(), s_cell.size()---- [1, 2, 65536, 1], [1, 2, 65536, 1]
 
             pred = self.imnet(feat, feat_grid, s_grid, s_cell)
-            # pred.size() -- torch.Size([1, 65536, 3, 1])
+            # pred.size() -- torch.Size([1, 3, 65536, 1])
 
             preds += [pred]
             start = stop
 
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
-        y = torch.cat(preds, dim=1)
-        y = y[0].view(1, output_h, output_w, 3)
-        y = y.permute(0, 3, 1, 2)  # from [1, h, w, 3] ==> [1, 3, h, w]
+        y = torch.cat(preds, dim=2)
+        y = y[0].view(1, 3, output_h, output_w)
 
         return y.clamp(0, 1.0)
 
@@ -290,8 +289,8 @@ class MLP(nn.Module):
         for i in range(4):
             ret = ret + preds[i] * (t_areas[i] / total_area).unsqueeze(-1)
 
-        # ret.size() -- torch.Size([1, bs, 3])  --> [1, bs, 3, 1]
-        return ret
+        # ret.size() -- torch.Size([1, bs, 3])  --> [1, 3, bs, 1]
+        return ret.permute(0, 2, 1).unsqueeze(3)
 
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
