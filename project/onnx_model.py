@@ -114,8 +114,8 @@ if __name__ == "__main__":
 
     dummy_transform_feat = torch.randn(1, 576, image_height, image_width)
     dummy_transform_feat_grid = torch.randn(1, 2, image_height, image_width)
-    dummy_transform_sub_grid = torch.randn(1, 1, 65536, 2)
-    dummy_transform_sub_cell = torch.randn(1, 1, 65536, 2)
+    dummy_transform_sub_grid = torch.randn(1, 2, 65536, 1)
+    dummy_transform_sub_cell = torch.randn(1, 2, 65536, 1)
 
     def export_encoder_onnx():
         # 1. Create and load model.
@@ -127,8 +127,10 @@ if __name__ == "__main__":
 
         input_names = ["input"]
         output_names = ["output"]
-        dynamic_axes = {'input': {2: "height", 3: 'width'},
-                        'output': {2: "height", 3: 'width'}}
+        dynamic_axes = {
+            "input": {2: "height", 3: "width"},
+            "output": {2: "height", 3: "width"},
+        }
         torch.onnx.export(
             model,
             dummy_encoder_input,
@@ -162,9 +164,11 @@ if __name__ == "__main__":
 
         input_names = ["feat", "grid", "sub_grid", "sub_cell"]
         output_names = ["output"]
-        dynamic_axes = {'feat': {2: "height", 3: 'width'},
-                        'grid': {2: "height", 3: 'width'},
-                        'output': {2: "height", 3: 'width'}}
+        dynamic_axes = {
+            "feat": {2: "height", 3: "width"},
+            "grid": {2: "height", 3: "width"},
+            "output": {2: "height", 3: "width"},
+        }
         torch.onnx.export(
             model,
             (

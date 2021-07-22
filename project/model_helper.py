@@ -49,8 +49,9 @@ def make_grid(H: int, W: int):
     grid_h = torch.arange(-1.0, 1.0, 2.0 / H) + 1.0 / H
     grid_w = torch.arange(-1.0, 1.0, 2.0 / W) + 1.0 / W
     gh, gw = torch.meshgrid([grid_h, grid_w])
-    grid = torch.stack((gh, gw), dim=2).unsqueeze(0)
-    # grid.size() -- torch.Size([1, H, W, 2])
+    # gh, gw size() -- [H, W]
+    grid = torch.stack((gh.unsqueeze(0), gw.unsqueeze(0)), dim=1)
+    # grid.size() -- torch.Size([1, 2, H, W])
 
     return grid
 
@@ -89,22 +90,23 @@ class ImageZoomxModel(nn.Module):
 
         grid = make_grid(output_h, output_w)
         grid = grid.to(x.device)
+        # grid.size() -- torch.Size([1, 2, 1024, 1024, 2])
 
         cell = torch.ones_like(grid)
         # in-place not correct for torch script
-        # cell[:, :, :, 0] *= 2.0/output_h
-        # cell[:, :, :, 1] *= 2.0/output_w
+        # cell[:, 0, :, :] *= 2.0/output_h
+        # cell[:, 1, :, :] *= 2.0/output_w
         cell = torch.stack(
-            (cell[:, :, :, 0] * 2.0 / output_h, cell[:, :, :, 1] * 2.0 / output_w),
-            dim=3,
+            (cell[:, 0, :, :] * 2.0 / output_h, cell[:, 1, :, :] * 2.0 / output_w),
+            dim=1,
         )
 
         n: int = output_h * output_w
 
-        grid = grid.view(1, n, 2)
-        # grid format from [1, h, w, 2] ==> [1, h * w, 2]
-        cell = cell.view(1, n, 2)
-        # cell format from [1, h, w, 2] ==> [1, h * w, 2]
+        grid = grid.view(1, 2, n, 1)
+        # grid format from [1, 2, h, w] ==> [1, 2, h * w, 1]
+        cell = cell.view(1, 2, n, 1)
+        # cell format from [1, 2, h, w] ==> [1, 2, h * w, 1]
 
         bs: int = 256 * 256
         feat = self.encoder(x)
@@ -113,7 +115,7 @@ class ImageZoomxModel(nn.Module):
         H = feat.size(2)
         W = feat.size(3)
 
-        feat_grid = make_grid(H, W).permute(0, 3, 1, 2)
+        feat_grid = make_grid(H, W)
         feat_grid = feat_grid.to(feat.device)
         # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
 
@@ -123,33 +125,21 @@ class ImageZoomxModel(nn.Module):
             # stop = min(start + bs, n)
             stop: int = start + bs if start + bs < n else n
 
-            s_grid = grid[0:1, start:stop, 0:2]
-            s_grid = s_grid.unsqueeze(0)  # DO NOT use in-place for TVM
-
-            s_cell = cell[0:1, start:stop, 0:2]
-            s_cell = s_cell.unsqueeze(0)  # DO NOT use in-place for TVM
-            # (Pdb) pp feat.size(), s_grid.size(), s_cell.size()
-            # (torch.Size([1, 576, 96, 128]),
-            #  torch.Size([1, 1, 65536, 2]),
-            #  torch.Size([1, 1, 65536, 2]))
+            s_grid = grid[:, :, start:stop, :]
+            s_cell = cell[:, :, start:stop, :]
+            #  feat.size() -- [1, 576, 96, 128],
+            #  s_grid.size(), s_cell.size()---- [1, 2, 65536, 1], [1, 2, 65536, 1]
 
             pred = self.imnet(feat, feat_grid, s_grid, s_cell)
-            # pred.size() -- torch.Size([1, 65536, 3])
+            # pred.size() -- torch.Size([1, 65536, 3, 1])
 
-            preds += [
-                pred.view(stop - start, 1, 3)
-            ]  # TVM stack only support on axis dim == 0
+            preds += [pred]
             start = stop
 
         # (Pdb) len(preds), preds[0].size(), preds[103].size(), preds[104].size()
-        # (105, torch.Size([1, bs, 3]), torch.Size([1, bs, 3]), torch.Size([1, bs, 3]))
-        y = torch.cat(preds, dim=0)
-        # return y
-
-        y = y.view(1, n, 3)  # TVM stack only support on axis dim == 0
-        # pp y.size() -- torch.Size([1, 1048576, 3])
+        y = torch.cat(preds, dim=1)
         y = y[0].view(1, output_h, output_w, 3)
-        y = y.permute(0, 3, 1, 2)
+        y = y.permute(0, 3, 1, 2)  # from [1, h, w, 3] ==> [1, 3, h, w]
 
         return y.clamp(0, 1.0)
 
@@ -192,16 +182,14 @@ class MLP(nn.Module):
     def forward(self, feat, feat_grid, s_grid, s_cell):
         # (torch.Size([1, 576, 512, 512]),
         # torch.Size([1, 2, 512, 512]),
-        # torch.Size([1, 1, 65536, 2]),
-        # torch.Size([1, 1, 65536, 2]))
+        # torch.Size([1, 2, 65536, 1]),
+        # torch.Size([1, 2, 65536, 1]))
 
-        # s_grid, s_cell, format from [1, 1, bs, 2] to [1, bs, 2]
-        s_grid = s_grid.squeeze(0)
-        s_cell = s_cell.squeeze(0)
-
+        # s_grid, s_cell, format from [1, 2, 1, bs] to [1, bs, 2]
+        s_grid = s_grid.squeeze(3).permute(0, 2, 1)
+        s_cell = s_cell.squeeze(3).permute(0, 2, 1)
         # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, bs, 2]), torch.Size([1, bs, 2]))
-        # batch, chan = s_grid.shape[:2]
         batch = s_grid.size(0)
         chan = s_grid.size(1)
 
@@ -280,9 +268,6 @@ class MLP(nn.Module):
                 )
                 # input.size() -- torch.Size([bs, 580])
 
-                # with torch.no_grad():
-                #     pred = self.simple_forward(input).view(batch, chan, -1)
-
                 pred = self.simple_forward(input).view(batch, chan, -1)
 
                 # (Pdb) pred.size() -- torch.Size([1, bs, 3])
@@ -302,12 +287,10 @@ class MLP(nn.Module):
         t_areas += [areas[0]]
 
         ret = torch.zeros_like(preds[0])
-        # for pred, area in zip(preds, areas):
-        #     ret = ret + pred * (area / total_area).unsqueeze(-1)
         for i in range(4):
             ret = ret + preds[i] * (t_areas[i] / total_area).unsqueeze(-1)
 
-        # ret.size() -- torch.Size([1, bs, 3])
+        # ret.size() -- torch.Size([1, bs, 3])  --> [1, bs, 3, 1]
         return ret
 
 
