@@ -1,28 +1,7 @@
-## Readme
-### 1. Project
-#### 1.1 Name
-**Zoomx**
-#### 1.2 Introduce
+## README
 
-**Dell** create this version (`0.0.1`) at 2021年 05月 27日 星期四 20:27:46 CST.
+Image zoom in package 1.0.0
 
-### 2. Build & Run 
-
-#### 2.1 Depend
-`python: >= 3.7.7`
-`pytorch: >= 1.5.1`
-`pillow: >= 7.2.0` 
-`torchvision: >=0.6.1`
-
-#### 2.2 Train
-`python train.py --help`
-
-#### 2.3 Test
-`python test.py --help`
-
-#### 2.4 Predict
-`python predict.py --help`
-
-#### 2.5 Onnx Tool
-`python onnxtool.py --help`
+### Demo
+demo.py
 

@@ -42,6 +42,7 @@ register_op("grid_sampler", grid_sampler, "", 11)
 
 
 @torch.jit.script
+# xxxx8888 zoomx::make_grid(input) --> tensor
 def make_grid(H: int, W: int):
     """Make standard grid for H, W."""
     H = float(H)
@@ -90,19 +91,20 @@ class ImageZoomxModel(nn.Module):
 
         grid = make_grid(output_h, output_w)
         grid = grid.to(x.device)
-        # grid.size() -- torch.Size([1, 2, 1024, 1024, 2])
+        # grid.size() -- [1, 2, 1024, 1024]
 
         cell = torch.ones_like(grid)
         # in-place not correct for torch script
         # cell[:, 0, :, :] *= 2.0/output_h
         # cell[:, 1, :, :] *= 2.0/output_w
+        # xxxx8888 zoomx::make_cell(tensor) --> tensor
         cell = torch.stack(
             (cell[:, 0, :, :] * 2.0 / output_h, cell[:, 1, :, :] * 2.0 / output_w),
             dim=1,
         )
 
         n: int = output_h * output_w
-
+        # xxxx8888 view ???? data dependent ?
         grid = grid.view(1, 2, n, 1)
         # grid format from [1, 2, h, w] ==> [1, 2, h * w, 1]
         cell = cell.view(1, 2, n, 1)
@@ -117,8 +119,9 @@ class ImageZoomxModel(nn.Module):
 
         feat_grid = make_grid(H, W)
         feat_grid = feat_grid.to(feat.device)
-        # (Pdb) feat_grid.size() -- torch.Size([1, 2, 96, 128])
+        # (Pdb) feat_grid.size() -- [1, 2, 96, 128]
 
+        # xxxx8888
         preds = []
         start: int = 0
         while start < n:
@@ -172,8 +175,9 @@ class MLP(nn.Module):
         # out_dim = 3
         # hidden_list = [256, 256, 256, 256]
 
-    def simple_forward(self, x):
+    def mlp_simple_forward(self, x):
         # x.size() -- torch.Size([bs, 580])
+        # xxxx8888
         bs = x.size(0)
         x = self.layers(x)
         return x.view(bs, -1)
@@ -189,6 +193,7 @@ class MLP(nn.Module):
         s_cell = s_cell.squeeze(3).permute(0, 2, 1)
         # (Pdb) pp s_grid.size(), s_cell.size()
         # (torch.Size([1, bs, 2]), torch.Size([1, bs, 2]))
+        # xxxx8888
         batch = s_grid.size(0)
         chan = s_grid.size(1)
 
@@ -197,7 +202,7 @@ class MLP(nn.Module):
         C = feat.size(1)
         H = feat.size(2)
         W = feat.size(3)
-        # (Pdb) feat.size() --  torch.Size([1, 576, 96, 128]
+        # (Pdb) feat.size() --  [1, 576, 96, 128]
 
         eps_shift = 1e-6
         delta_h = 1.0 / H
@@ -207,6 +212,7 @@ class MLP(nn.Module):
         # q_cell[:, :, 0] *= H
         # q_cell[:, :, 1] *= W
         q_cell = torch.stack((q_cell[:, :, 0] * H, q_cell[:, :, 1] * W), dim=2)
+        # xxxx8888
 
         # (Pdb) q_cell.size() -- torch.Size([1, bs, 2])
         # (Pdb) q_cell.min(), q_cell.max() --
@@ -267,7 +273,7 @@ class MLP(nn.Module):
                 )
                 # input.size() -- torch.Size([bs, 580])
 
-                pred = self.simple_forward(input).view(batch, chan, -1)
+                pred = self.mlp_simple_forward(input).view(batch, chan, -1)
 
                 # (Pdb) pred.size() -- torch.Size([1, bs, 3])
                 preds += [pred]
@@ -383,6 +389,7 @@ class EDSR(nn.Module):
         x = self.simple_forward(x)
 
         # B, C, H, W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
+        # xxxx8888
         B = x.size(0)
         C = x.size(1)
         H = x.size(2)

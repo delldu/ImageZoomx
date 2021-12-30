@@ -27,7 +27,7 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "input", type=str, help="input image files (eg: images/small.png)"
+        "input", type=str, default="images/*.png", help="input image files (eg: images/small.png)"
     )
     parser.add_argument(
         "--checkpoint", type=str, default="models/ImageZoomx.pth", help="checkpint file"
@@ -46,12 +46,14 @@ if __name__ == "__main__":
     model = model.to(device)
     model.eval()
 
+    # torch.save(model.state_dict(), "/tmp/image_zoomx.pth")
+
     print(model)
 
     totensor = transforms.ToTensor()
     toimage = transforms.ToPILImage()
 
-    image_filenames = glob.glob(args.input)
+    image_filenames = sorted(glob.glob(args.input))
     progress_bar = tqdm(total=len(image_filenames))
 
     for index, filename in enumerate(image_filenames):
@@ -61,6 +63,7 @@ if __name__ == "__main__":
         input_tensor = totensor(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            output_tensor = model(input_tensor, torch.Tensor([1024, 1024])).squeeze(0)
+            output_tensor = model(input_tensor, torch.Tensor([1440, 1920])).squeeze(0)
 
-        toimage(output_tensor.cpu()).show()
+        # toimage(output_tensor.cpu()).show()
+        toimage(output_tensor.cpu()).save("{}/{}".format(args.output, os.path.basename(filename)))
