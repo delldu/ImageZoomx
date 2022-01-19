@@ -7,4 +7,3 @@ image_zoomx.image_server("PAI")
 image_zoomx.video_predict("/home/dell/noise.mp4", 2, "output/predict.mp4")
 image_zoomx.video_client("PAI", "/home/dell/noise.mp4", 2, "output/server.mp4")
 image_zoomx.video_server("PAI")
-

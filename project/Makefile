@@ -16,4 +16,4 @@ uninstall:
 	python setup.py uninstall
 
 clean:
-	rm -rf build dist image_zoomx.egg-info
+	rm -rf build dist image_zoomx.egg-info __pycache__
