@@ -1,6 +1,6 @@
 ## README
 
-Image zoom in package 1.0.0
+Image zoomx in package 1.0.0
 
 ### Demo
 demo.py
